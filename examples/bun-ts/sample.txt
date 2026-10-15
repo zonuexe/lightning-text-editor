@@ -1,0 +1,5 @@
+Hello, World!
+Welcome to inzm editor!
+
+This is a fast text editor built with Bun and TypeScript.
+Enjoy hacking!
