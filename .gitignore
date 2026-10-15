@@ -1,0 +1,12 @@
+# Dependencies & runtime
+node_modules/
+.bun/
+
+# Test memos
+memo.txt
+loop.ts
+test_*.*
+*.tmp
+
+# OS files
+.DS_Store

@@ -76,11 +76,13 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 - ステータスバー（ファイル名、行数、文字数、モード表示）
 - ヘルプメッセージ（「Ctrl+Q で終了」などのガイド表示）
 
-### 4. 次の一歩（40分完了後の延長ミッション）
-- 構文ハイライト（Syntax Highlighting）
-- 検索機能（インクリメンタルサーチ）
-- 複数行スクロール対応
-- Undo / Redo
+### 4. 次の一歩（40分完了後 / 時間が余ったときのデザートメニュー）
+40分の基本実装がサクッと終わった場合、さらに実用性を高める追加機能レシピを用意しています（詳細は `docs/extension-ideas.md` を参照）：
+- **⚡️ QuickRun (`Ctrl+R`)**: タイムアウト付きで現在ファイルを即時実行し、`q` でエディタに復帰（TypeScript, Python, PHP, Ruby, Bash等）
+- **✂️ 行キル・行複製 (`Ctrl+K` / `Ctrl+D`)**: 1行削除・複製
+- **🛡 未保存終了ガード (Safe Quit)**: 変更破棄の二重確認
+- **🎨 簡易シンタックスハイライト / テーマ切り替え**: キーワードやコメントの色付け
+- **🔍 Git Diff ビューア / フォーマッター連携**: 差分確認やコード整形連携
 
 ---
 
@@ -110,7 +112,9 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 ├── docs/                   # ターミナル基礎知識・技術ドキュメント
 │   ├── raw-mode.md         # ターミナルのRaw Modeとは（stty / termiosの仕組み）
 │   ├── ansi-escapes.md     # よく使うANSIエスケープシーケンス一覧
-│   └── architecture.md     # 40分エディタの基本アーキテクチャ
+│   ├── architecture.md     # 40分エディタの基本アーキテクチャ
+│   ├── unicode-and-width.md # 文字幅とGrapheme Clusterの深淵（発展トピック）
+│   └── extension-ideas.md  # 40分完了後の拡張アイデア集（デザートメニュー）
 ├── guides/                 # 言語別クイックリファレンス
 │   ├── ruby.md             # Ruby版ガイド (io/console)
 │   ├── python.md           # Python版ガイド (termios / tty)
@@ -120,6 +124,9 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── php.md              # PHP版ガイド (stty / fgetc)
 │   ├── typescript.md       # TypeScriptガイド (Bun推奨 / Node.js + tsx)
 │   └── c.md                # C言語版ガイド (termios)
+├── examples/               # 完成サンプル実装集
+│   ├── bun-ts/             # inzm (Bun + TypeScript版: フル機能 & QuickRun)
+│   └── ruby/               # inzm (Ruby版: bin/lib構成 & init.rb自己拡張)
 ├── prompts/                # AI進行用プロンプト・ファシリテーション定義
 └── skills/                 # pi / Claude Code / エージェント用スキル定義
 ```
