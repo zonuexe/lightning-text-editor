@@ -1,6 +1,8 @@
 # Dependencies & runtime
 node_modules/
 .bun/
+examples/go/inzm
+
 
 # Test memos
 memo.txt

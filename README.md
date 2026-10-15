@@ -125,8 +125,9 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── typescript.md       # TypeScriptガイド (Bun推奨 / Node.js + tsx)
 │   └── c.md                # C言語版ガイド (termios)
 ├── examples/               # 完成サンプル実装集
-│   ├── bun-ts/             # inzm (Bun + TypeScript版: フル機能 & QuickRun)
-│   └── ruby/               # inzm (Ruby版: bin/lib構成 & init.rb自己拡張)
+│   ├── bun-ts/             # inzm (Bun + TypeScript版: Shikiハイライト & QuickRun)
+│   ├── ruby/               # inzm (Ruby版: bin/lib構成, Emacsキーマップ & init.rb自己拡張)
+│   └── go/                 # inzm (Go版: Vimモーダル編集 & マルチバッファ管理)
 ├── prompts/                # AI進行用プロンプト・ファシリテーション定義
 └── skills/                 # pi / Claude Code / エージェント用スキル定義
 ```

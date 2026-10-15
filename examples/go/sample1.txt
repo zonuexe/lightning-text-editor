@@ -1,0 +1,18 @@
+Hello from Go Buffer 1!
+Welcome to inzm (Vim & Multi-Buffer edition in Go).
+
+Try Vim modal commands:
+- Normal Mode:
+  h, j, k, l (Move cursor)
+  0, $       (Line start, line end)
+  i, a, A    (Enter Insert mode)
+  o, O       (Open new line below/above)
+  x          (Delete character under cursor)
+  dd         (Delete whole line)
+
+- Multi-Buffer:
+  Ctrl+N / Ctrl+P : Switch between open buffers!
+  :e <filename>   : Open new file into a buffer
+  :bn / :bp       : Next/prev buffer
+  :bd             : Close current buffer
+  :w / :q / :wq   : Save / Quit

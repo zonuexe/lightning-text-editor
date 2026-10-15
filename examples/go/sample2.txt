@@ -1,0 +1,11 @@
+This is Buffer 2!
+Go's struct-based multi-buffer architecture is super fast and clean.
+
+Buffer State Features:
+- Each buffer preserves its own:
+  * Cursor X & Cursor Y position
+  * Scroll viewport (RowOffset)
+  * File path and modified status (*)
+
+Check the top tab-bar to see:
+  [1: sample1.txt]  [2: sample2.txt*]
