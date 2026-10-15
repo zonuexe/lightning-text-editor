@@ -1,0 +1,27 @@
+Hello, Emacs & Ruby Hacker!
+Welcome to inzm (Ruby Emacs mode).
+
+Try these Emacs keybindings:
+- Movement:
+  C-p (Up)    C-n (Down)
+  C-b (Left)  C-f (Right)
+  C-a (Line start)   C-e (Line end)
+  M-v (Page Up)      C-v (Page Down)
+
+- Editing:
+  C-d (Delete forward char)
+  C-k (Kill line to end)
+  C-g (Keyboard quit / cancel)
+
+- File & System:
+  C-x C-s (Save buffer)
+  C-x C-c (Quit inzm)
+
+- Emacs Eval & Shell:
+  M-: (Evaluate Ruby expression! e.g. lines.map!(&:upcase))
+  M-! (Run shell command! e.g. git status, date, ls -la)
+
+- Defined in init.rb:
+  M-u (Uppercase current line)
+  C-x d (Duplicate current line)
+  C-x k (Clear buffer)
