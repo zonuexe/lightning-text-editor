@@ -67,6 +67,7 @@ module Inzm
       @row_offset = 0
       @is_modified = false
       @status_message = ""
+      @is_eaw = true
       @running = false
 
       @global_keymap = Keymap.new
@@ -249,18 +250,50 @@ module Inzm
       end
     end
 
-    # --- 5. 文字幅計算 (簡易EAW) ---
+    # --- 5. 文字幅計算 (簡易EAW & DSRプローブ) ---
+    def probe_eaw(io)
+      print "\e[1;1H\e[2Kα\e[6n"
+      resp = String.new
+      start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      while Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time < 0.1
+        c = io.read_nonblock(1, exception: false)
+        if c && c != :wait_readable
+          resp << c
+          break if c == 'R'
+        end
+        sleep 0.005
+      end
+      print "\e[1;1H\e[2K"
+      if resp =~ /\[\d+;(\d+)R/
+        @is_eaw = ($1.to_i == 3)
+      else
+        @is_eaw = true
+      end
+    end
+
     def char_width(char)
       code = char.ord
+
+      # 1. 確定全角 (Wide / Fullwidth)
       if (0x1100..0x115f).include?(code) ||
          (0x2e80..0xa4cf).include?(code) ||
          (0xac00..0xd7a3).include?(code) ||
          (0xf900..0xfaff).include?(code) ||
          (0xfe10..0xfe19).include?(code) ||
          (0xfe30..0xfe6f).include?(code) ||
-         (0xff00..0xff60).include?(code) ||
+         (0xff01..0xff60).include?(code) ||
          (0xffe0..0xffe6).include?(code)
         2
+      # 2. 東アジア曖昧幅 (Ambiguous Width)
+      elsif (0x0370..0x03ff).include?(code) || # ギリシャ
+            (0x0400..0x04ff).include?(code) || # キリル
+            (0x2010..0x205e).include?(code) || # 句読点
+            (0x2100..0x214f).include?(code) || # 文字様記号 (℃ 等)
+            (0x2190..0x21ff).include?(code) || # 矢印
+            (0x2200..0x22ff).include?(code) || # 数学記号
+            (0x25a0..0x25ff).include?(code) || # 幾何学模様 (■, ★, ○)
+            (0x2600..0x26ff).include?(code)    # 記号 (※ 等)
+        @is_eaw ? 2 : 1
       else
         1
       end
@@ -327,7 +360,8 @@ module Inzm
       pos_info = "L#{@cursor_y + 1}/#{@lines.length} C#{@cursor_x + 1}"
       msg_part = @status_message.empty? ? "" : "  #{@status_message}"
 
-      left_text = "-#{mod_mark}-  [inzm] #{@filename}   (Ruby)#{prefix_info}  #{pos_info}"
+      eaw_label = @is_eaw ? "EAW" : "Non-EAW"
+      left_text = "-#{mod_mark}-  [inzm] #{@filename}   (Ruby:#{eaw_label})#{prefix_info}  #{pos_info}"
       right_text = "M-:: Eval | M-!: Sh | C-x C-s: Save | C-x C-c: Quit "
 
       left_w = string_width(left_text)
@@ -468,6 +502,7 @@ module Inzm
       trap("WINCH") { render if @running }
 
       $stdin.raw do |io|
+        probe_eaw(io)
         render
         while @running
           key = read_key(io)

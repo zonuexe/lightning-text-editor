@@ -6,24 +6,78 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/term"
 )
 
-// --- 0. 文字幅計算 (簡易EAW) ---
+// --- 0. 文字幅計算 (EAW & DSRプローブ) ---
+var isEaw = true
+
 func runeWidth(r rune) int {
+	// 1. 確定全角 (Wide / Fullwidth)
 	if (r >= 0x1100 && r <= 0x115f) ||
 		(r >= 0x2e80 && r <= 0xa4cf) ||
 		(r >= 0xac00 && r <= 0xd7a3) ||
 		(r >= 0xf900 && r <= 0xfaff) ||
 		(r >= 0xfe10 && r <= 0xfe19) ||
 		(r >= 0xfe30 && r <= 0xfe6f) ||
-		(r >= 0xff00 && r <= 0xff60) ||
+		(r >= 0xff01 && r <= 0xff60) ||
 		(r >= 0xffe0 && r <= 0xffe6) {
 		return 2
 	}
+
+	// 2. 東アジア曖昧幅 (Ambiguous Width): ギリシャ、キリル、記号、矢印など
+	if (r >= 0x0370 && r <= 0x03ff) || // ギリシャ文字
+		(r >= 0x0400 && r <= 0x04ff) || // キリル文字
+		(r >= 0x2010 && r <= 0x205e) || // 句読点
+		(r >= 0x2100 && r <= 0x214f) || // 文字様記号 (℃ 等)
+		(r >= 0x2190 && r <= 0x21ff) || // 矢印
+		(r >= 0x2200 && r <= 0x22ff) || // 数学記号
+		(r >= 0x25a0 && r <= 0x25ff) || // 幾何学模様 (■, ★, ○)
+		(r >= 0x2600 && r <= 0x26ff) { // 記号 (※ 等)
+		if isEaw {
+			return 2
+		}
+		return 1
+	}
+
 	return 1
+}
+
+func probeEaw() bool {
+	os.Stdout.WriteString("\x1b[1;1H\x1b[2Kα\x1b[6n")
+	ch := make(chan []byte, 1)
+	go func() {
+		buf := make([]byte, 32)
+		n, err := os.Stdin.Read(buf)
+		if err == nil && n > 0 {
+			ch <- buf[:n]
+		} else {
+			ch <- nil
+		}
+	}()
+
+	var resp []byte
+	select {
+	case resp = <-ch:
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	os.Stdout.WriteString("\x1b[1;1H\x1b[2K")
+	if resp != nil {
+		str := string(resp)
+		if idx := strings.Index(str, ";"); idx != -1 {
+			if end := strings.Index(str[idx:], "R"); end != -1 {
+				colStr := str[idx+1 : idx+end]
+				if col, err := strconv.Atoi(colStr); err == nil {
+					return col == 3
+				}
+			}
+		}
+	}
+	return true
 }
 
 func stringWidth(s string) int {
@@ -301,7 +355,11 @@ func (ed *Editor) Render() {
 	if buf.IsModified {
 		modMark = " [+]"
 	}
-	leftStatus := fmt.Sprintf(" -- %s --  %s%s", modeName, buf.Filename, modMark)
+	eawLabel := "[EAW]"
+	if !isEaw {
+		eawLabel = "[Non-EAW]"
+	}
+	leftStatus := fmt.Sprintf(" -- %s --  %s%s  %s", modeName, buf.Filename, modMark, eawLabel)
 	rightStatus := fmt.Sprintf("%d/%d Ln, Col %d ", buf.CursorY+1, len(buf.Lines), buf.CursorX+1)
 
 	leftW := stringWidth(leftStatus)
@@ -602,6 +660,7 @@ func (ed *Editor) Run() {
 
 	// 代替画面バッファに入る
 	os.Stdout.WriteString("\x1b[?1049h\x1b[2J\x1b[H")
+	isEaw = probeEaw()
 	ed.Render()
 
 	buf := make([]byte, 64)

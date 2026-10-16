@@ -1,9 +1,13 @@
 import process from "node:process";
 import { createHighlighter, type Highlighter } from "shiki";
 
-// --- 0. 文字幅の判定ヘルパー（East Asian Width 簡易版） ---
+// --- 0. 文字幅の判定ヘルパー（East Asian Width & DSRプローブ） ---
+let isEaw = true;
+
 function getCharWidth(char: string): number {
   const code = char.codePointAt(0) ?? 0;
+
+  // 1. 確定全角 (Wide / Fullwidth): 漢字、ひらがな、カタカナ、全角英数・記号
   if (
     (code >= 0x1100 && code <= 0x115f) ||
     (code >= 0x2e80 && code <= 0xa4cf) ||
@@ -11,11 +15,26 @@ function getCharWidth(char: string): number {
     (code >= 0xf900 && code <= 0xfaff) ||
     (code >= 0xfe10 && code <= 0xfe19) ||
     (code >= 0xfe30 && code <= 0xfe6f) ||
-    (code >= 0xff00 && code <= 0xff60) ||
+    (code >= 0xff01 && code <= 0xff60) ||
     (code >= 0xffe0 && code <= 0xffe6)
   ) {
     return 2;
   }
+
+  // 2. 東アジア曖昧幅 (Ambiguous Width): ギリシャ文字、キリル文字、※、★、℃、矢印など
+  if (
+    (code >= 0x0370 && code <= 0x03ff) || // ギリシャ文字
+    (code >= 0x0400 && code <= 0x04ff) || // キリル文字
+    (code >= 0x2010 && code <= 0x205e) || // 一般句読点
+    (code >= 0x2100 && code <= 0x214f) || // 文字様記号 (℃ 等)
+    (code >= 0x2190 && code <= 0x21ff) || // 矢印
+    (code >= 0x2200 && code <= 0x22ff) || // 数学記号
+    (code >= 0x25a0 && code <= 0x25ff) || // 幾何学模様 (■, ★, ○ 等)
+    (code >= 0x2600 && code <= 0x26ff)    // その他記号 (※ 等)
+  ) {
+    return isEaw ? 2 : 1; // 端末の検知結果に応じて動的に幅を切り替え！
+  }
+
   return 1;
 }
 
@@ -204,7 +223,8 @@ function render() {
 
   const modMark = isModified ? " [*未保存]" : "";
   const posInfo = `Ln ${cursorY + 1}/${lines.length}, Col ${cursorX + 1}`;
-  const langTag = currentLang ? ` [${currentLang}:${THEME_NAME}]` : "";
+  const eawTag = isEaw ? ":EAW" : ":Non-EAW";
+  const langTag = currentLang ? ` [${currentLang}:${THEME_NAME}${eawTag}]` : ` [${eawTag.slice(1)}]`;
   const msgPart = statusMessage ? ` | ${statusMessage}` : "";
   const leftText = ` [inzm] ${filename}${modMark}${langTag} | ${posInfo}${msgPart}`;
   const rightText = `Ctrl+R: 実行 | Ctrl+S: 保存 | Ctrl+Q: 終了 `;
@@ -253,8 +273,36 @@ if (process.stdin.isTTY) {
 process.stdin.resume();
 
 // 代替画面バッファ (Alternate Screen Buffer) に入る
-// これによりターミナルが PageUp/PageDown をアプリに渡し、直前のシェル画面も保護される
 process.stdout.write("\x1b[?1049h");
+
+// DSRプローブ: 端末の曖昧幅 (EAW) を動的自動検知
+async function probeEaw(): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const timeout = setTimeout(() => {
+      if (!done) {
+        done = true;
+        resolve(true); // タイムアウト時は安全にデフォルトEAW
+      }
+    }, 100);
+
+    const onData = (data: Buffer) => {
+      const match = data.toString().match(/\[\d+;(\d+)R/);
+      if (match) {
+        done = true;
+        clearTimeout(timeout);
+        process.stdin.removeListener("data", onData);
+        process.stdout.write("\x1b[1;1H\x1b[2K"); // 画面クリア
+        resolve(parseInt(match[1], 10) === 3);
+      }
+    };
+
+    process.stdin.on("data", onData);
+    process.stdout.write("\x1b[1;1H\x1b[2Kα\x1b[6n");
+  });
+}
+
+isEaw = await probeEaw();
 
 render();
 
