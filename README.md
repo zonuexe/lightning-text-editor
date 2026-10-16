@@ -127,7 +127,8 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 ├── examples/               # 完成サンプル実装集
 │   ├── bun-ts/             # inzm (Bun + TypeScript版: Shikiハイライト & QuickRun)
 │   ├── ruby/               # inzm (Ruby版: bin/lib構成, Emacsキーマップ & init.rb自己拡張)
-│   └── go/                 # inzm (Go版: Vimモーダル編集 & マルチバッファ管理)
+│   ├── go/                 # inzm (Go版: Vimモーダル編集 & マルチバッファ管理)
+│   └── php/                # inzm.php (PHP版: Composer不要・単一ファイル・mb_strwidth活用)
 ├── prompts/                # AI進行用プロンプト・ファシリテーション定義
 └── skills/                 # pi / Claude Code / エージェント用スキル定義
 ```
