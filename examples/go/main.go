@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -137,7 +138,8 @@ type Editor struct {
 	CommandLine   string
 	StatusMessage string
 	Running       bool
-	PendingKey    rune // 'd' や 'g' などの2ストローク用
+	PendingKey    rune // 'd' や 'y' などの2ストローク用
+	YankRegister  string
 	OldState      *term.State
 	Fd            int
 }
@@ -410,6 +412,21 @@ func (ed *Editor) ExecuteCommand() {
 		}
 		ed.StatusMessage = strings.Join(list, "  ")
 	default:
+		// :123 のような数値行ジャンプ
+		if lineNum, err := strconv.Atoi(op); err == nil {
+			cur := ed.CurrentBuffer()
+			targetY := lineNum - 1
+			if targetY < 0 {
+				targetY = 0
+			}
+			if targetY >= len(cur.Lines) {
+				targetY = len(cur.Lines) - 1
+			}
+			cur.CursorY = targetY
+			cur.CursorX = 0
+			ed.StatusMessage = fmt.Sprintf("Jumped to line %d", targetY+1)
+			return
+		}
 		ed.StatusMessage = "Not an editor command: :" + cmd
 	}
 }
@@ -537,6 +554,38 @@ func (ed *Editor) DeleteLine() {
 	buf.IsModified = true
 }
 
+func (ed *Editor) DeleteToEndOfLine() {
+	buf := ed.CurrentBuffer()
+	runes := buf.RunesAt(buf.CursorY)
+	if len(runes) == 0 {
+		return
+	}
+	if buf.CursorX < len(runes) {
+		buf.SetRunesAt(buf.CursorY, runes[:buf.CursorX])
+		if buf.CursorX > 0 && buf.CursorX >= len(runes[:buf.CursorX]) {
+			buf.CursorX = len(runes[:buf.CursorX]) - 1
+		}
+		ed.StatusMessage = "Deleted to end of line"
+	}
+}
+
+func (ed *Editor) PasteYanked() {
+	if ed.YankRegister == "" {
+		ed.StatusMessage = "Nothing to paste"
+		return
+	}
+	buf := ed.CurrentBuffer()
+	newLines := make([]string, 0, len(buf.Lines)+1)
+	newLines = append(newLines, buf.Lines[:buf.CursorY+1]...)
+	newLines = append(newLines, ed.YankRegister)
+	newLines = append(newLines, buf.Lines[buf.CursorY+1:]...)
+	buf.Lines = newLines
+	buf.CursorY++
+	buf.CursorX = 0
+	buf.IsModified = true
+	ed.StatusMessage = "1 line pasted"
+}
+
 // --- 7. メインループ ---
 func (ed *Editor) Run() {
 	oldState, err := term.MakeRaw(ed.Fd)
@@ -618,11 +667,19 @@ func (ed *Editor) HandleInput(input string) {
 			return
 		}
 
-		// 2ストロークキー処理 (dd)
+		// 2ストロークキー処理 (dd, yy)
 		if ed.PendingKey == 'd' {
 			if r == 'd' {
 				ed.DeleteLine()
 				ed.StatusMessage = "1 line deleted"
+			}
+			ed.PendingKey = 0
+			return
+		}
+		if ed.PendingKey == 'y' {
+			if r == 'y' {
+				ed.YankRegister = curBuf.Lines[curBuf.CursorY]
+				ed.StatusMessage = "1 line yanked"
 			}
 			ed.PendingKey = 0
 			return
@@ -676,11 +733,17 @@ func (ed *Editor) HandleInput(input string) {
 			curBuf.IsModified = true
 			ed.Mode = ModeInsert
 
-		// 削除
+		// 削除 & ヤンク & ペースト
 		case 'x':
 			ed.DeleteCharUnderCursor()
+		case 'D':
+			ed.DeleteToEndOfLine()
 		case 'd':
 			ed.PendingKey = 'd'
+		case 'y':
+			ed.PendingKey = 'y'
+		case 'p':
+			ed.PasteYanked()
 
 		// コマンドラインへ
 		case ':':

@@ -8,11 +8,14 @@ Try Vim modal commands:
   i, a, A    (Enter Insert mode)
   o, O       (Open new line below/above)
   x          (Delete character under cursor)
+  D          (Delete to end of line)
   dd         (Delete whole line)
+  yy -> p    (Yank line and paste below - duplicate line!)
 
 - Multi-Buffer:
   Ctrl+N / Ctrl+P : Switch between open buffers!
   :e <filename>   : Open new file into a buffer
   :bn / :bp       : Next/prev buffer
+  :123            : Jump to line number (e.g. :1)
   :bd             : Close current buffer
   :w / :q / :wq   : Save / Quit
