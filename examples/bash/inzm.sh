@@ -286,7 +286,137 @@ cmd_write() {
     echo "$bytes"
 }
 
-# --- 5. メイン REPL ループ (Readline 駆動) ---
+# --- 5. ヘルプシステム (:help & ?command) ---
+
+show_general_help() {
+    cat <<'EOF'
+=== inzm.sh (ed/ex Line Editor) Help ===
+
+[Concepts]
+  . (dot)      Current line
+  $            Last line
+  , or %       All lines (1,$)
+  Address      [start[,end]]command (e.g. 1,5p, ,n, 3d)
+
+[Commands]
+  print (p)       Print lines
+  number (n)      Print lines with line numbers
+  append (a)      Append lines after address (end with lone '.')
+  insert (i)      Insert lines before address (end with lone '.')
+  delete (d)      Delete lines
+  substitute (s)  sed-style regex substitution (e.g. s/old/new/g)
+  /pattern/       Search forward for regex pattern
+  write (w)       Save buffer to file
+  quit (q)        Exit editor (q! to force quit)
+  P               Toggle prompt (* ) display
+  h               Show last error explanation
+
+Type '?command' (e.g. '?print', '?substitute', '?write') for detailed help.
+EOF
+}
+
+show_command_help() {
+    local target="$1"
+    case "$target" in
+        p|print)
+            cat <<'EOF'
+Command: print (p)
+Usage:   [range]print, [range]p
+Desc:    Prints addressed lines. Updates current line to the last printed.
+Examples:
+  p         Print current line (.)
+  3p        Print line 3
+  1,5p      Print lines 1 to 5
+  ,p        Print all lines (1,$)
+EOF
+            ;;
+        n|number)
+            cat <<'EOF'
+Command: number (n)
+Usage:   [range]number, [range]n
+Desc:    Prints addressed lines with line numbers.
+Examples:
+  n         Print current line with line number
+  ,n        Print all lines with line numbers
+  3,10n     Print lines 3 through 10 with line numbers
+EOF
+            ;;
+        a|append)
+            cat <<'EOF'
+Command: append (a)
+Usage:   [address]append, [address]a
+Desc:    Appends text after addressed line (default: current line).
+         Input multiple lines, end with a single '.' on a line by itself.
+Examples:
+  a         Append text after current line
+  $a        Append text at the end of file
+  0a        Append text at the beginning of file
+EOF
+            ;;
+        i|insert)
+            cat <<'EOF'
+Command: insert (i)
+Usage:   [address]insert, [address]i
+Desc:    Inserts text before addressed line (default: current line).
+         Input multiple lines, end with a single '.' on a line by itself.
+Examples:
+  i         Insert text before current line
+  1i        Insert text at the very top of file
+EOF
+            ;;
+        d|delete)
+            cat <<'EOF'
+Command: delete (d)
+Usage:   [range]delete, [range]d
+Desc:    Deletes addressed lines from buffer.
+Examples:
+  d         Delete current line
+  3d        Delete line 3
+  2,5d      Delete lines 2 to 5
+  ,d        Delete all lines in buffer
+EOF
+            ;;
+        s|substitute)
+            cat <<'EOF'
+Command: substitute (s)
+Usage:   [range]s/old/new/[flags]
+Desc:    Replaces matches of 'old' with 'new' using sed regex.
+         Flags: g (global replacement on line)
+Examples:
+  s/foo/bar/        Replace first 'foo' with 'bar' on current line
+  s/foo/bar/g       Replace all 'foo' with 'bar' on current line
+  ,s/foo/bar/g      Replace all 'foo' with 'bar' across whole buffer
+  1,10s/old/new/g   Replace in lines 1 to 10
+EOF
+            ;;
+        w|write)
+            cat <<'EOF'
+Command: write (w)
+Usage:   write [filename], w [filename]
+Desc:    Writes buffer to file. Displays written byte count.
+Examples:
+  w                 Save to current filename
+  w backup.txt      Save to specified file
+EOF
+            ;;
+        q|quit)
+            cat <<'EOF'
+Command: quit (q)
+Usage:   quit, q, quit!, q!
+Desc:    Exits editor. If buffer has unsaved changes, warns with '?' once.
+Examples:
+  q         Quit editor (warns if modified)
+  q!        Force quit without saving changes
+EOF
+            ;;
+        *)
+            echo "No help available for: $target"
+            echo "Available: print, number, append, insert, delete, substitute, write, quit"
+            ;;
+    esac
+}
+
+# --- 6. メイン REPL ループ (Readline 駆動) ---
 
 QUIT_CONFIRM=0
 
@@ -335,8 +465,20 @@ while true; do
     fi
     QUIT_CONFIRM=0
 
-    # h / help : ヘルプ（最後の?の理由表示）
-    if [[ "$cmd" == "h" || "$cmd" == "help" ]]; then
+    # :help / help / :h : 操作体系とコマンド一覧の全体ヘルプ
+    if [[ "$cmd" == ":help" || "$cmd" == ":h" || "$cmd" == "help" || "$cmd" == "?" ]]; then
+        show_general_help
+        continue
+    fi
+
+    # ?command (例: ?print, ?write, ?substitute) : 個別コマンドの用法ヘルプ
+    if [[ "$cmd" =~ ^\?([a-zA-Z]+)$ ]]; then
+        show_command_help "${BASH_REMATCH[1]}"
+        continue
+    fi
+
+    # h : ed 伝統のエラー詳細理由（直前の?の理由）
+    if [[ "$cmd" == "h" ]]; then
         echo "${LAST_ERROR:-No error}"
         continue
     fi
