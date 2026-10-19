@@ -1,0 +1,5 @@
+First line of the buffer.
+Second line with some typos.
+Third line: Unix is awesome.
+Fourth line: Bash and ed.
+Final line.
