@@ -41,7 +41,7 @@ setup_completion_dir
 if [[ -n "$FILENAME" && -f "$FILENAME" ]]; then
     cat "$FILENAME" > "$BUFFER"
     BYTES=$(wc -c < "$BUFFER" | tr -d ' ')
-    echo "$BYTES"
+    echo "${BYTES} bytes"
 elif [[ -n "$FILENAME" ]]; then
     # 新規ファイル
     touch "$BUFFER"
@@ -50,6 +50,8 @@ elif [[ -n "$FILENAME" ]]; then
 else
     touch "$BUFFER"
 fi
+
+echo "inzm.sh: Type '?' for command list, or '?<cmd>' (e.g. ?print) for details."
 
 get_total_lines() {
     if [[ ! -s "$BUFFER" ]]; then
@@ -465,8 +467,8 @@ while true; do
     fi
     QUIT_CONFIRM=0
 
-    # :help / help / :h : 操作体系とコマンド一覧の全体ヘルプ
-    if [[ "$cmd" == ":help" || "$cmd" == ":h" || "$cmd" == "help" || "$cmd" == "?" ]]; then
+    # ? : 操作体系とコマンド一覧の全体ヘルプ
+    if [[ "$cmd" == "?" ]]; then
         show_general_help
         continue
     fi
@@ -477,7 +479,7 @@ while true; do
         continue
     fi
 
-    # h : ed 伝統のエラー詳細理由（直前の?の理由）
+    # h : ed 伝統のエラー詳細理由（直前の?エラーの理由を表示）
     if [[ "$cmd" == "h" ]]; then
         echo "${LAST_ERROR:-No error}"
         continue
