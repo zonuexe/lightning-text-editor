@@ -23,7 +23,7 @@ trap cleanup EXIT INT TERM
 # 一時ディレクトリにexコマンド名の空ファイルを作成するハック (Readline補完用)
 setup_completion_dir() {
     # 1. 補完候補となるexコマンドの空ファイル
-    local ex_cmds=(write quit print number delete substitute append insert help version)
+    local ex_cmds=(write quit print number delete substitute append insert help version less)
     for c in "${ex_cmds[@]}"; do
         touch "$COMP_DIR/$c"
     done
@@ -288,7 +288,27 @@ cmd_write() {
     echo "$bytes"
 }
 
-# --- 5. ヘルプシステム (:help & ?command) ---
+# less : 外部ページャー less にバッファを丸投げして全画面スクロール閲覧
+cmd_less() {
+    local total
+    total=$(get_total_lines)
+    if (( total == 0 )); then
+        set_error "Empty buffer"
+        return 1
+    fi
+
+    if command -v less >/dev/null 2>&1; then
+        local jump_opt="+1"
+        if (( CURRENT_LINE > 0 )); then
+            jump_opt="+${CURRENT_LINE}"
+        fi
+        less -N "$jump_opt" "$BUFFER"
+    else
+        more "$BUFFER"
+    fi
+}
+
+# --- 5. ヘルプシステム (? & ?command) ---
 
 show_general_help() {
     cat <<'EOF'
@@ -310,6 +330,7 @@ show_general_help() {
   /pattern/       Search forward for regex pattern
   write (w)       Save buffer to file
   quit (q)        Exit editor (q! to force quit)
+  less (:less)    Browse buffer in full-screen with 'less'
   P               Toggle prompt (* ) display
   h               Show last error explanation
 
@@ -411,9 +432,20 @@ Examples:
   q!        Force quit without saving changes
 EOF
             ;;
+        less)
+            cat <<'EOF'
+Command: less (:less)
+Usage:   less, :less
+Desc:    Opens the current buffer in the 'less' pager for full-screen scrolling.
+         Starts at the current line with line numbers. Press 'q' inside less to return.
+Examples:
+  less      Browse buffer in less
+  :less     Browse buffer in less
+EOF
+            ;;
         *)
             echo "No help available for: $target"
-            echo "Available: print, number, append, insert, delete, substitute, write, quit"
+            echo "Available: print, number, append, insert, delete, substitute, write, quit, less"
             ;;
     esac
 }
@@ -482,6 +514,12 @@ while true; do
     # h : ed 伝統のエラー詳細理由（直前の?エラーの理由を表示）
     if [[ "$cmd" == "h" ]]; then
         echo "${LAST_ERROR:-No error}"
+        continue
+    fi
+
+    # :less / less : 外部 less コマンドにバッファを丸投げして全画面スクロール閲覧
+    if [[ "$cmd" == ":less" || "$cmd" == "less" ]]; then
+        cmd_less
         continue
     fi
 
