@@ -130,7 +130,8 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── go/                 # inzm (Go版: Vimモーダル編集 & マルチバッファ管理)
 │   ├── php/                # ZONU inzm (PHP版: nano風レイアウト & 操作体系, EAW自動検知)
 │   ├── bash/               # inzm.sh (Bash版: ed/ex風ラインエディタ, sed/awk/Readline活用)
-│   └── python/             # inzm.py (Python版: JOE/ZOE風, WordStarキーバインド, FSD Amoebaリスペクト)
+│   ├── python/             # inzm.py (Python版: JOE/ZOE風, WordStarキーバインド, FSD Amoebaリスペクト)
+│   └── rust/               # inzm (Rust版: MinEd風, Unicodeファーストクラス, 書記素クラスタ完全対応)
 ├── prompts/                # AI進行用プロンプト・ファシリテーション定義
 └── skills/                 # pi / Claude Code / エージェント用スキル定義
 ```

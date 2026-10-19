@@ -1,0 +1,17 @@
+Welcome to inzm (MinEd homage in Rust)!
+This editor features first-class Unicode & Grapheme Cluster support.
+
+Try moving your cursor over these characters:
+1. Basic Latin:     Hello, Rust!
+2. CJK Fullwidth:   こんにちは、世界！ (Japanese)
+3. Combining Mark:  か゚ (ka with combining handakuten)
+4. Emoji Sequences: 🍣 🇯🇵 👨‍👩‍👧‍👦 (ZWJ Family)
+5. Special Symbols: ※ ★ ℃ → ⚡️
+
+Notice the status bar at the bottom:
+It displays the exact Unicode codepoint (e.g. U+3042) and cell width!
+
+Shortcuts:
+- Ctrl+U : Unicode Hex Input (e.g. type '1F363' for 🍣, '3042' for あ)
+- Ctrl+S : Save file
+- Ctrl+Q : Quit editor

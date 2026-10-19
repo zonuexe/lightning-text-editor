@@ -2,6 +2,7 @@
 node_modules/
 .bun/
 examples/go/inzm
+target/
 
 
 # Test memos

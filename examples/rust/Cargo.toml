@@ -1,0 +1,9 @@
+[package]
+name = "inzm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossterm = "0.28"
+unicode-width = "0.2"
+unicode-segmentation = "1.12"
