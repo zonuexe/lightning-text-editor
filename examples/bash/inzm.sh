@@ -23,7 +23,7 @@ trap cleanup EXIT INT TERM
 # 一時ディレクトリにexコマンド名の空ファイルを作成するハック (Readline補完用)
 setup_completion_dir() {
     # 1. 補完候補となるexコマンドの空ファイル
-    local ex_cmds=(write quit print number delete substitute append insert help version less)
+    local ex_cmds=(write quit print number delete substitute append insert help version less view visual)
     for c in "${ex_cmds[@]}"; do
         touch "$COMP_DIR/$c"
     done
@@ -288,8 +288,8 @@ cmd_write() {
     echo "$bytes"
 }
 
-# less : 外部ページャー less にバッファを丸投げして全画面スクロール閲覧
-cmd_less() {
+# view / visual / less : 外部ページャー less にバッファを丸投げして全画面スクロール閲覧
+cmd_view() {
     local total
     total=$(get_total_lines)
     if (( total == 0 )); then
@@ -306,6 +306,26 @@ cmd_less() {
     else
         more "$BUFFER"
     fi
+}
+
+# !cmd : 外部シェルコマンドを実行 (ed/ex 伝統のシェルエスケープ)
+cmd_shell_escape() {
+    local sh_cmd="$1"
+    sh_cmd=$(echo "$sh_cmd" | sed 's/^[[:space:]]*//')
+    if [[ -z "$sh_cmd" ]]; then
+        set_error "Empty shell command"
+        return 1
+    fi
+
+    # % を現在のファイル名に展開 (ex の伝統: 例: !wc -l %)
+    if [[ -n "$FILENAME" ]]; then
+        sh_cmd="${sh_cmd//%/$FILENAME}"
+    fi
+
+    # 外部コマンド実行
+    ( eval "$sh_cmd" )
+    # ed の伝統: コマンド実行完了後に '!' を1行出力
+    echo "!"
 }
 
 # --- 5. ヘルプシステム (? & ?command) ---
@@ -330,7 +350,8 @@ show_general_help() {
   /pattern/       Search forward for regex pattern
   write (w)       Save buffer to file
   quit (q)        Exit editor (q! to force quit)
-  less (:less)    Browse buffer in full-screen with 'less'
+  view (v)        Browse buffer in pager (aliases: visual, less)
+  !command        Execute shell command (e.g. !wc -l %, !date, !git diff)
   P               Toggle prompt (* ) display
   h               Show last error explanation
 
@@ -432,20 +453,36 @@ Examples:
   q!        Force quit without saving changes
 EOF
             ;;
-        less)
+        view|v|visual|less)
             cat <<'EOF'
-Command: less (:less)
-Usage:   less, :less
-Desc:    Opens the current buffer in the 'less' pager for full-screen scrolling.
-         Starts at the current line with line numbers. Press 'q' inside less to return.
+Command: view (aliases: v, visual, less)
+Usage:   view, v, visual, less
+Desc:    Opens the current buffer in the pager for full-screen scrolling.
+         Starts at the current line with line numbers. Press 'q' inside pager to return.
 Examples:
-  less      Browse buffer in less
-  :less     Browse buffer in less
+  v         Browse buffer
+  view      Browse buffer
+  visual    Browse buffer (ex-style)
+  less      Browse buffer
+EOF
+            ;;
+        '!'|sh|shell)
+            cat <<'EOF'
+Command: !command (Shell Escape)
+Usage:   !command
+Desc:    Executes an arbitrary shell command.
+         '%' in the command is automatically expanded to current filename.
+         Prints '!' when execution completes.
+Examples:
+  !date              Print current date/time
+  !wc -l %           Count lines in current file
+  !git status        Check git status
+  !git diff %        Check changes in current file
 EOF
             ;;
         *)
             echo "No help available for: $target"
-            echo "Available: print, number, append, insert, delete, substitute, write, quit, less"
+            echo "Available: print, number, append, insert, delete, substitute, write, quit, view, !"
             ;;
     esac
 }
@@ -505,8 +542,8 @@ while true; do
         continue
     fi
 
-    # ?command (例: ?print, ?write, ?substitute) : 個別コマンドの用法ヘルプ
-    if [[ "$cmd" =~ ^\?([a-zA-Z]+)$ ]]; then
+    # ?command (例: ?print, ?write, ?view, ?!) : 個別コマンドの用法ヘルプ
+    if [[ "$cmd" =~ ^\?([a-zA-Z!]+)$ ]]; then
         show_command_help "${BASH_REMATCH[1]}"
         continue
     fi
@@ -517,9 +554,15 @@ while true; do
         continue
     fi
 
-    # :less / less : 外部 less コマンドにバッファを丸投げして全画面スクロール閲覧
-    if [[ "$cmd" == ":less" || "$cmd" == "less" ]]; then
-        cmd_less
+    # !cmd : 外部シェルコマンドを実行 (例: !date, !wc -l %, !git status)
+    if [[ "$cmd" =~ ^!(.*)$ ]]; then
+        cmd_shell_escape "${BASH_REMATCH[1]}"
+        continue
+    fi
+
+    # view / v / visual / less / :view / :less : 外部ページャーによる全画面閲覧
+    if [[ "$cmd" =~ ^(:)?(view|visual|v|less)$ ]]; then
+        cmd_view
         continue
     fi
 
