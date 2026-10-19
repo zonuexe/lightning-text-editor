@@ -33,10 +33,11 @@ struct Editor {
     is_modified: bool,
     status_message: String,
     running: bool,
+    is_eaw: bool,
 }
 
 impl Editor {
-    fn new(filename: Option<String>) -> Self {
+    fn new(filename: Option<String>, is_eaw: bool) -> Self {
         let fname = filename.unwrap_or_else(|| "untitled.txt".to_string());
         let mut lines = vec![String::new()];
 
@@ -60,6 +61,15 @@ impl Editor {
             is_modified: false,
             status_message: String::new(),
             running: true,
+            is_eaw,
+        }
+    }
+
+    fn grapheme_width(&self, g: &str) -> usize {
+        if self.is_eaw {
+            UnicodeWidthStr::width_cjk(g)
+        } else {
+            UnicodeWidthStr::width(g)
         }
     }
 
@@ -83,7 +93,7 @@ impl Editor {
         }
 
         let target_grapheme = graphemes[self.cursor_x];
-        let width = UnicodeWidthStr::width(target_grapheme);
+        let width = self.grapheme_width(target_grapheme);
 
         // 書記素を構成する Unicode コードポイント列 (U+XXXX)
         let codepoints: Vec<String> = target_grapheme
@@ -108,7 +118,7 @@ impl Editor {
         let mut cur_w = 0;
         let mut res = String::new();
         for g in text.graphemes(true) {
-            let w = UnicodeWidthStr::width(g);
+            let w = self.grapheme_width(g);
             if cur_w + w > max_w {
                 break;
             }
@@ -116,6 +126,10 @@ impl Editor {
             cur_w += w;
         }
         res
+    }
+
+    fn str_width(&self, text: &str) -> usize {
+        text.graphemes(true).map(|g| self.grapheme_width(g)).sum()
     }
 
     fn scroll(&mut self, screen_rows: usize) {
@@ -162,10 +176,11 @@ impl Editor {
         let mod_mark = if self.is_modified { " [*]" } else { "" };
         let char_info = self.current_char_info();
         let pos_info = format!("Ln {}, Col {}", self.cursor_y + 1, self.cursor_x + 1);
+        let eaw_label = if self.is_eaw { "EAW" } else { "Non-EAW" };
 
         let left_status = format!(
-            " [mined] {}{} | {} | Char: {}",
-            self.filename, mod_mark, pos_info, char_info
+            " [mined] {}{} ({}) | {} | Char: {}",
+            self.filename, mod_mark, eaw_label, pos_info, char_info
         );
         let right_status = if !self.status_message.is_empty() {
             format!("{} | Ctrl+S: Save | Ctrl+Q: Quit ", self.status_message)
@@ -174,21 +189,21 @@ impl Editor {
         };
 
         let max_w = cols.saturating_sub(1);
-        let left_w = UnicodeWidthStr::width(left_status.as_str());
-        let right_w = UnicodeWidthStr::width(right_status.as_str());
+        let left_w = self.str_width(&left_status);
+        let right_w = self.str_width(&right_status);
         let pad = max_w.saturating_sub(left_w + right_w);
 
         let full_bar = format!("{}{}{}", left_status, " ".repeat(pad), right_status);
         out.push_str(&self.truncate_str(&full_bar, max_w));
         out.push_str("\x1b[0m\x1b[K");
 
-        // 3. カーソル位置の設定
+        // 3. カーソル位置の設定 (EAW設定に完全追従！)
         let screen_y = (self.cursor_y - self.row_offset) + 1;
         let graphemes = self.graphemes_at(self.cursor_y);
         let visual_x: usize = graphemes
             .iter()
             .take(self.cursor_x)
-            .map(|g| UnicodeWidthStr::width(*g))
+            .map(|g| self.grapheme_width(g))
             .sum();
         let screen_x = visual_x + LINE_NUM_WIDTH + 1;
 
@@ -422,9 +437,37 @@ impl Editor {
     }
 }
 
+fn probe_eaw() -> bool {
+    let mut stdout = stdout();
+    let _ = execute!(
+        stdout,
+        cursor::MoveTo(0, 0),
+        Clear(ClearType::CurrentLine),
+        crossterm::style::Print("α")
+    );
+    let _ = stdout.flush();
+
+    let is_eaw = match cursor::position() {
+        Ok((col, _row)) => col >= 2,
+        Err(_) => true,
+    };
+
+    let _ = execute!(
+        stdout,
+        cursor::MoveTo(0, 0),
+        Clear(ClearType::CurrentLine)
+    );
+    let _ = stdout.flush();
+    is_eaw
+}
+
 fn main() -> Result<(), std::io::Error> {
+    enable_raw_mode()?;
+    let is_eaw = probe_eaw();
+    disable_raw_mode()?;
+
     let filename = env::args().nth(1);
-    let mut editor = Editor::new(filename);
+    let mut editor = Editor::new(filename, is_eaw);
     editor.run()
 }
 
@@ -434,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_grapheme_cluster_handling() {
-        let mut ed = Editor::new(None);
+        let mut ed = Editor::new(None, true);
         // 結合文字 (か + 結合濁点)
         let dakuten_ka = "か\u{3099}";
         ed.insert_str(dakuten_ka);
@@ -458,11 +501,18 @@ mod tests {
 
     #[test]
     fn test_char_info() {
-        let mut ed = Editor::new(None);
+        let mut ed = Editor::new(None, true);
         ed.insert_str("あ");
         ed.cursor_x = 0; // 'あ' の上に戻る
         let info = ed.current_char_info();
         assert!(info.contains("U+3042"), "Expected U+3042 in info, got: {}", info);
         assert!(info.contains("Wide (2 cells)"), "Expected Wide width in info, got: {}", info);
+
+        // ※ の幅テスト (EAW=true では 2 cells になる！)
+        ed.lines[0] = "※".to_string();
+        ed.cursor_x = 0;
+        let star_info = ed.current_char_info();
+        assert!(star_info.contains("U+203B"), "Expected U+203B in info, got: {}", star_info);
+        assert!(star_info.contains("Wide (2 cells)"), "In EAW environment, ※ must be Wide (2 cells)!");
     }
 }
