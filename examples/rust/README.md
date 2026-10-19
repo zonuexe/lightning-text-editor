@@ -27,6 +27,10 @@
 ```bash
 cd examples/rust
 cargo run -- sample.txt
+
+# 明示的に EAW=2 (Wide) または Non-EAW (Narrow) を強制起動することも可能
+cargo run -- sample.txt --eaw
+cargo run -- sample.txt --no-eaw
 ```
 
 ---
@@ -41,6 +45,7 @@ cargo run -- sample.txt
 | **文字入力** | カーソル位置に文字挿入 |
 | **Enter** | 改行 |
 | **Backspace** | **書記素単位で削除**（結合文字や絵文字が絶対に壊れません） |
+| **F2 / Ctrl+T** | **EAWモードのリアルタイムトグル**（Wide:2cells ⇄ Narrow:1cell 即時切替） |
 | **Ctrl+U** | **Unicode Hex Input**（コードポイントを直接打って文字挿入！） |
 | **Ctrl+S** | ファイル保存（末尾 `\n` 保証） |
 | **Ctrl+Q / Ctrl+C** | 終了 |

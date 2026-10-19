@@ -183,9 +183,9 @@ impl Editor {
             self.filename, mod_mark, eaw_label, pos_info, char_info
         );
         let right_status = if !self.status_message.is_empty() {
-            format!("{} | Ctrl+S: Save | Ctrl+Q: Quit ", self.status_message)
+            format!("{} | F2: EAW | Ctrl+S: Save | Ctrl+Q: Quit ", self.status_message)
         } else {
-            "Ctrl+U: Unicode Hex | Ctrl+S: Save | Ctrl+Q: Quit ".to_string()
+            "F2: EAW | Ctrl+U: Hex | Ctrl+S: Save | Ctrl+Q: Quit ".to_string()
         };
 
         let max_w = cols.saturating_sub(1);
@@ -362,6 +362,15 @@ impl Editor {
                     (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
                         self.prompt_unicode_hex()?;
                     }
+                    // F2 または Ctrl+T : EAWモード (Wide 2 / Narrow 1) のリアルタイムトグル
+                    (_, KeyCode::F(2))
+                    | (KeyModifiers::CONTROL, KeyCode::Char('t')) => {
+                        self.is_eaw = !self.is_eaw;
+                        self.status_message = format!(
+                            "EAW mode: {}",
+                            if self.is_eaw { "Wide (2 cells)" } else { "Narrow (1 cell)" }
+                        );
+                    }
                     // 矢印キー移動
                     (_, KeyCode::Up) => {
                         if self.cursor_y > 0 {
@@ -439,13 +448,17 @@ impl Editor {
 
 fn probe_eaw() -> bool {
     let mut stdout = stdout();
+    // 日本語環境で最も確実な曖昧文字 '※' (U+203B) を使ってプローブ
     let _ = execute!(
         stdout,
         cursor::MoveTo(0, 0),
         Clear(ClearType::CurrentLine),
-        crossterm::style::Print("α")
+        crossterm::style::Print("※")
     );
     let _ = stdout.flush();
+
+    // わずかに待機してレスポンスを確実に受信
+    std::thread::sleep(std::time::Duration::from_millis(15));
 
     let is_eaw = match cursor::position() {
         Ok((col, _row)) => col >= 2,
@@ -462,11 +475,29 @@ fn probe_eaw() -> bool {
 }
 
 fn main() -> Result<(), std::io::Error> {
-    enable_raw_mode()?;
-    let is_eaw = probe_eaw();
-    disable_raw_mode()?;
+    let args: Vec<String> = env::args().collect();
+    let mut filename = None;
+    let mut forced_eaw = None;
 
-    let filename = env::args().nth(1);
+    for arg in args.into_iter().skip(1) {
+        if arg == "--eaw" {
+            forced_eaw = Some(true);
+        } else if arg == "--no-eaw" {
+            forced_eaw = Some(false);
+        } else if filename.is_none() {
+            filename = Some(arg);
+        }
+    }
+
+    let is_eaw = if let Some(forced) = forced_eaw {
+        forced
+    } else {
+        enable_raw_mode()?;
+        let probed = probe_eaw();
+        disable_raw_mode()?;
+        probed
+    };
+
     let mut editor = Editor::new(filename, is_eaw);
     editor.run()
 }
