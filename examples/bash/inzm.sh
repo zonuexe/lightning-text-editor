@@ -3,18 +3,39 @@
 set -u
 
 # --- 1. 一時ファイルと終了処理 ---
+ORIG_PWD=$(pwd)
 FILENAME="${1:-}"
 BUFFER=$(mktemp /tmp/inzm_buf.XXXXXX)
 TEMP_SWAP=$(mktemp /tmp/inzm_swap.XXXXXX)
+COMP_DIR=$(mktemp -d /tmp/inzm_comp.XXXXXX)
 MODIFIED=0
 LAST_ERROR=""
 SHOW_PROMPT=1
 PROMPT_STR="* "
 
 cleanup() {
+    cd "$ORIG_PWD" 2>/dev/null || true
     rm -f "$BUFFER" "$TEMP_SWAP"
+    rm -rf "$COMP_DIR"
 }
 trap cleanup EXIT INT TERM
+
+# 一時ディレクトリにexコマンド名の空ファイルを作成するハック (Readline補完用)
+setup_completion_dir() {
+    # 1. 補完候補となるexコマンドの空ファイル
+    local ex_cmds=(write quit print number delete substitute append insert help version)
+    for c in "${ex_cmds[@]}"; do
+        touch "$COMP_DIR/$c"
+    done
+
+    # 2. カレントディレクトリのファイルも補完できるようにシンボリックリンクを作成
+    for f in "$ORIG_PWD"/*; do
+        if [[ -e "$f" ]]; then
+            ln -sf "$f" "$COMP_DIR/" 2>/dev/null || true
+        fi
+    done
+}
+setup_completion_dir
 
 # ファイルの読み込み
 if [[ -n "$FILENAME" && -f "$FILENAME" ]]; then
@@ -275,9 +296,13 @@ while true; do
         prompt="$PROMPT_STR"
     fi
 
-    # read -e による Readline / Editline 入力
-    # 上下矢印キーで履歴を呼び出し、Ctrl+A/E/K/U/R などのEmacsキーがフル動作！
-    if ! IFS= read -r -e -p "$prompt" cmd; then
+    # 一時ディレクトリにcdして read -e を呼ぶことで、Readline にexコマンド名をファイル名として補完させるハック！
+    cd "$COMP_DIR" 2>/dev/null || true
+    read_status=0
+    IFS= read -r -e -p "$prompt" cmd || read_status=$?
+    cd "$ORIG_PWD" 2>/dev/null || true
+
+    if (( read_status != 0 )); then
         echo ""
         break # EOF (Ctrl+D)
     fi
@@ -296,8 +321,8 @@ while true; do
     # 履歴に記録（上下矢印や Ctrl+R で再利用可能）
     history -s "$cmd"
 
-    # q / q! コマンド
-    if [[ "$cmd" == "q" ]]; then
+    # q / quit / q! コマンド
+    if [[ "$cmd" == "q" || "$cmd" == "quit" ]]; then
         if (( MODIFIED == 1 && QUIT_CONFIRM == 0 )); then
             set_error "Warning: buffer modified"
             QUIT_CONFIRM=1
@@ -305,13 +330,13 @@ while true; do
         fi
         break
     fi
-    if [[ "$cmd" == "q!" ]]; then
+    if [[ "$cmd" == "q!" || "$cmd" == "quit!" ]]; then
         break
     fi
     QUIT_CONFIRM=0
 
-    # h / H : ヘルプ（最後の?の理由表示）
-    if [[ "$cmd" == "h" ]]; then
+    # h / help : ヘルプ（最後の?の理由表示）
+    if [[ "$cmd" == "h" || "$cmd" == "help" ]]; then
         echo "${LAST_ERROR:-No error}"
         continue
     fi
@@ -322,9 +347,9 @@ while true; do
         continue
     fi
 
-    # w : 保存
-    if [[ "$cmd" =~ ^w([[:space:]]+(.+))?$ ]]; then
-        target_fn="${BASH_REMATCH[2]:-}"
+    # w / write : 保存
+    if [[ "$cmd" =~ ^(w|write)([[:space:]]+(.+))?$ ]]; then
+        target_fn="${BASH_REMATCH[3]:-}"
         cmd_write "$target_fn"
         continue
     fi
@@ -370,8 +395,8 @@ while true; do
         continue
     fi
 
-    # d : 削除
-    if [[ "$cmd" =~ ^([0-9,.$%]*)d$ ]]; then
+    # d / delete : 削除
+    if [[ "$cmd" =~ ^([0-9,.$%]*)(d|delete)$ ]]; then
         range_part="${BASH_REMATCH[1]}"
         range_pair=$(parse_range "$range_part") || { set_error "Invalid address"; continue; }
         start=$(echo "$range_pair" | awk '{print $1}')
@@ -380,8 +405,8 @@ while true; do
         continue
     fi
 
-    # p : 表示
-    if [[ "$cmd" =~ ^([0-9,.$%]*)p$ ]]; then
+    # p / print : 表示
+    if [[ "$cmd" =~ ^([0-9,.$%]*)(p|print)$ ]]; then
         range_part="${BASH_REMATCH[1]}"
         range_pair=$(parse_range "$range_part") || { set_error "Invalid address"; continue; }
         start=$(echo "$range_pair" | awk '{print $1}')
@@ -390,8 +415,8 @@ while true; do
         continue
     fi
 
-    # n : 行番号付き表示
-    if [[ "$cmd" =~ ^([0-9,.$%]*)n$ ]]; then
+    # n / number : 行番号付き表示
+    if [[ "$cmd" =~ ^([0-9,.$%]*)(n|number)$ ]]; then
         range_part="${BASH_REMATCH[1]}"
         range_pair=$(parse_range "$range_part") || { set_error "Invalid address"; continue; }
         start=$(echo "$range_pair" | awk '{print $1}')
