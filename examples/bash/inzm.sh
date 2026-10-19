@@ -290,6 +290,7 @@ cmd_write() {
 
 # view / visual / less : 外部ページャー less にバッファを丸投げして全画面スクロール閲覧
 cmd_view() {
+    local target_line="${1:-1}"
     local total
     total=$(get_total_lines)
     if (( total == 0 )); then
@@ -297,12 +298,15 @@ cmd_view() {
         return 1
     fi
 
+    # アドレス指定がなければ先頭行 (1) から開くのが伝統的かつ自然な挙動
+    if (( target_line < 1 )); then
+        target_line=1
+    elif (( target_line > total )); then
+        target_line=$total
+    fi
+
     if command -v less >/dev/null 2>&1; then
-        local jump_opt="+1"
-        if (( CURRENT_LINE > 0 )); then
-            jump_opt="+${CURRENT_LINE}"
-        fi
-        less -N "$jump_opt" "$BUFFER"
+        less -N "+${target_line}" "$BUFFER"
     else
         more "$BUFFER"
     fi
@@ -456,14 +460,15 @@ EOF
         view|v|visual|less)
             cat <<'EOF'
 Command: view (aliases: v, visual, less)
-Usage:   view, v, visual, less
-Desc:    Opens the current buffer in the pager for full-screen scrolling.
-         Starts at the current line with line numbers. Press 'q' inside pager to return.
+Usage:   [address]view, [address]v, visual, less
+Desc:    Opens current buffer in pager for full-screen scrolling.
+         Defaults to line 1 (top of file), or jumps to [address] if specified.
+         Press 'q' inside pager to return to inzm.
 Examples:
-  v         Browse buffer
-  view      Browse buffer
-  visual    Browse buffer (ex-style)
-  less      Browse buffer
+  v         Browse from line 1 (top of file)
+  view      Browse from line 1
+  10v       Browse starting from line 10
+  $v        Browse starting from the end of file
 EOF
             ;;
         '!'|sh|shell)
@@ -560,9 +565,14 @@ while true; do
         continue
     fi
 
-    # view / v / visual / less / :view / :less : 外部ページャーによる全画面閲覧
-    if [[ "$cmd" =~ ^(:)?(view|visual|v|less)$ ]]; then
-        cmd_view
+    # view / v / visual / less / :view / :less : 外部ページャーによる全画面閲覧 (先頭または指定行から)
+    if [[ "$cmd" =~ ^([0-9,.$%]*)(:)?(view|visual|v|less)$ ]]; then
+        addr_part="${BASH_REMATCH[1]}"
+        target_row=1
+        if [[ -n "$addr_part" ]]; then
+            range_pair=$(parse_range "$addr_part") && target_row=$(echo "$range_pair" | awk '{print $2}')
+        fi
+        cmd_view "$target_row"
         continue
     fi
 
