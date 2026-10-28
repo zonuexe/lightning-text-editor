@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# inzm - Java版 (Gosling Emacs & Mocklisp) 起動スクリプト
+# GradleデーモンのTTY遮断を回避し、ネイティブ端末直結で起動します
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ビルド済みバイナリが存在しない場合はビルド
+if [[ ! -x "$DIR/build/install/inzm/bin/inzm" ]]; then
+    (cd "$DIR" && ./gradlew installDist -q)
+fi
+
+exec "$DIR/build/install/inzm/bin/inzm" "$@"

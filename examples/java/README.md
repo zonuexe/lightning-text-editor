@@ -26,9 +26,11 @@
 
 ```bash
 cd examples/java
-./gradlew run --args="sample.txt"
+./inzm sample.txt
 ```
-（Gradle Wrapper により、環境に Gradle がインストールされていなくても即座にビルド＆起動します）
+（または `./gradlew run --args="sample.txt"`）
+
+初回実行時に自動でビルドされ、以降はネイティブ端末（TTY）直結で瞬時に起動します。
 
 ---
 

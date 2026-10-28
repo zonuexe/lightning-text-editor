@@ -845,165 +845,148 @@ public class Inzm {
             System.out.flush();
         }
 
-        // =====================================================================
-        // 4. メインループ & 入力処理
-        // =====================================================================
-        void run() {
-            setRawMode(true);
-            System.out.print("\033[?1049h\033[2J\033[H");
+    // =========================================================================
+    // 4. メインループ & 入力処理 (エスケープシーケンス完全防壁)
+    // =========================================================================
+    void run() {
+        setRawMode(true);
+        System.out.print("\033[?1049h\033[2J\033[H");
+        System.out.flush();
+
+        isEaw = probeEaw();
+        updateWindowSize();
+        render();
+
+        try {
+            while (running) {
+                String key = readKeySequence();
+                if (key.isEmpty()) continue;
+
+                if (!statusMessage.startsWith("=>") && !statusMessage.startsWith("MLisp error") && !statusMessage.startsWith("Quit")) {
+                    statusMessage = "";
+                }
+
+                handleKey(key);
+                if (running) render();
+            }
+        } finally {
+            setTitle("");
+            System.out.print("\033[?1049l\033[?25h");
             System.out.flush();
-
-            isEaw = probeEaw();
-            updateWindowSize();
-            render();
-
-            try {
-                while (running) {
-                    int c = readRawByte();
-                    if (c == -1) break;
-
-                    if (!statusMessage.startsWith("=>") && !statusMessage.startsWith("MLisp error") && !statusMessage.startsWith("Quit")) {
-                        statusMessage = "";
-                    }
-
-                    handleKey(c);
-                    if (running) render();
-                }
-            } finally {
-                setTitle("");
-                System.out.print("\033[?1049l\033[?25h");
-                System.out.flush();
-                setRawMode(false);
-            }
-        }
-
-        void handleKey(int c) {
-            if (prefixCtrlX) {
-                prefixCtrlX = false;
-                if (c == 0x13) {
-                    saveFile();
-                } else if (c == 0x03) {
-                    running = false;
-                } else {
-                    statusMessage = String.format("C-x %c is undefined", (char)c);
-                }
-                return;
-            }
-
-            switch (c) {
-                case 0x18 -> prefixCtrlX = true; // C-x
-                case 0x10 -> moveCursor(0, -1); // C-p
-                case 0x0E -> moveCursor(0, 1);  // C-n
-                case 0x06 -> moveCursor(1, 0);  // C-f
-                case 0x02 -> moveCursor(-1, 0); // C-b
-                case 0x01 -> cursorX = 0;       // C-a
-                case 0x05 -> cursorX = currentLine().length(); // C-e
-                case 0x04 -> deleteForward();   // C-d
-                case 0x0B -> killToEndOfLine(); // C-k
-                case 0x07 -> {                  // C-g
-                    prefixCtrlX = false;
-                    statusMessage = "Quit";
-                }
-                case '\r', '\n' -> insertNewline();
-                case 0x7F, 0x08 -> deleteBackward();
-                case 0x1B -> handleEscapeSequence();
-                default -> {
-                    if (c >= 0x20) {
-                        // UTF-8 マルチバイト文字（日本語など）の完全サポート
-                        int bytes = 1;
-                        if ((c & 0xE0) == 0xC0) bytes = 2;
-                        else if ((c & 0xF0) == 0xE0) bytes = 3;
-                        else if ((c & 0xF8) == 0xF0) bytes = 4;
-
-                        byte[] utfBuf = new byte[bytes];
-                        utfBuf[0] = (byte) c;
-                        for (int i = 1; i < bytes; i++) {
-                            try {
-                                utfBuf[i] = (byte) System.in.read();
-                            } catch (Exception ignored) {}
-                        }
-                        insertString(new String(utfBuf, StandardCharsets.UTF_8));
-                    }
-                }
-            }
-        }
-
-        void handleEscapeSequence() {
-            try {
-                // エスケープシーケンスの到着を短時間待機（最大30ms）
-                long start = System.currentTimeMillis();
-                while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 30) {
-                    Thread.sleep(2);
-                }
-                if (System.in.available() == 0) {
-                    // 単独の Esc キー
-                    return;
-                }
-
-                int c2 = System.in.read();
-                if (c2 == ':') {
-                    evalPrompt();
-                } else if (c2 == 'v') {
-                    moveCursor(0, -(termRows - 1));
-                } else if (c2 == '[') {
-                    // CSI シーケンス
-                    start = System.currentTimeMillis();
-                    while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 30) {
-                        Thread.sleep(2);
-                    }
-                    if (System.in.available() == 0) return;
-
-                    int c3 = System.in.read();
-                    switch (c3) {
-                        case 'A' -> moveCursor(0, -1);
-                        case 'B' -> moveCursor(0, 1);
-                        case 'C' -> moveCursor(1, 0);
-                        case 'D' -> moveCursor(-1, 0);
-                        case 'H', '1' -> {
-                            cursorX = 0;
-                            consumeTilde();
-                        }
-                        case 'F', '4' -> {
-                            cursorX = currentLine().length();
-                            consumeTilde();
-                        }
-                        case '5' -> {
-                            moveCursor(0, -(termRows - 1));
-                            consumeTilde();
-                        }
-                        case '6' -> {
-                            moveCursor(0, termRows - 1);
-                            consumeTilde();
-                        }
-                    }
-                }
-            } catch (Exception ignored) {}
-        }
-
-        private void consumeTilde() {
-            try {
-                long start = System.currentTimeMillis();
-                while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 15) {
-                    Thread.sleep(1);
-                }
-                if (System.in.available() > 0) {
-                    System.in.read(); // ~ を消費
-                }
-            } catch (Exception ignored) {}
+            setRawMode(false);
         }
     }
 
+    String readKeySequence() {
+        try {
+            int c = System.in.read();
+            if (c == -1) return "";
+
+            if (c == 0x1B) { // ESC
+                // 続くバイトの到着を最大40ms待機
+                long start = System.currentTimeMillis();
+                while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 40) {
+                    Thread.sleep(2);
+                }
+                if (System.in.available() == 0) {
+                    return "\033"; // 単独の Esc
+                }
+
+                int c2 = System.in.read();
+                if (c2 == '[') {
+                    StringBuilder seq = new StringBuilder("\033[");
+                    start = System.currentTimeMillis();
+                    while (System.currentTimeMillis() - start < 40) {
+                        if (System.in.available() > 0) {
+                            int next = System.in.read();
+                            seq.append((char) next);
+                            if (Character.isLetter(next) || next == '~') break;
+                        } else {
+                            Thread.sleep(2);
+                        }
+                    }
+                    return seq.toString();
+                } else {
+                    return "\033" + (char) c2; // Meta キー (M-:, M-v 等)
+                }
+            }
+
+            // UTF-8 マルチバイト文字の読み取り
+            int bytes = 1;
+            if ((c & 0xE0) == 0xC0) bytes = 2;
+            else if ((c & 0xF0) == 0xE0) bytes = 3;
+            else if ((c & 0xF8) == 0xF0) bytes = 4;
+
+            byte[] buf = new byte[bytes];
+            buf[0] = (byte) c;
+            for (int i = 1; i < bytes; i++) {
+                buf[i] = (byte) System.in.read();
+            }
+            return new String(buf, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    void handleKey(String key) {
+        // C-x プレフィックス
+        if (prefixCtrlX) {
+            prefixCtrlX = false;
+            if (key.equals("\u0013")) { // C-s
+                saveFile();
+            } else if (key.equals("\u0003")) { // C-c
+                running = false;
+            } else {
+                statusMessage = "C-x " + key + " is undefined";
+            }
+            return;
+        }
+
+        switch (key) {
+            case "\u0018" -> prefixCtrlX = true; // C-x
+            case "\u0010", "\033[A" -> moveCursor(0, -1); // C-p / Up
+            case "\u000E", "\033[B" -> moveCursor(0, 1);  // C-n / Down
+            case "\u0006", "\033[C" -> moveCursor(1, 0);  // C-f / Right
+            case "\u0002", "\033[D" -> moveCursor(-1, 0); // C-b / Left
+            case "\u0001", "\033[H", "\033[1~" -> cursorX = 0; // C-a / Home
+            case "\u0005", "\033[F", "\033[4~" -> cursorX = currentLine().length(); // C-e / End
+            case "\033[5~", "\033v" -> moveCursor(0, -(termRows - 1)); // PageUp / M-v
+            case "\033[6~", "\u0016" -> moveCursor(0, termRows - 1);  // PageDown / C-v
+            case "\033:" -> evalPrompt(); // M-: (Eval Mocklisp)
+            case "\u0004" -> deleteForward(); // C-d
+            case "\u000B" -> killToEndOfLine(); // C-k
+            case "\u0007" -> { // C-g
+                prefixCtrlX = false;
+                statusMessage = "Quit";
+            }
+            case "\r", "\n" -> insertNewline();
+            case "\u007F", "\u0008" -> deleteBackward();
+            default -> {
+                // エスケープシーケンスで始まらない通常の表示可能文字のみバッファへ挿入！
+                if (!key.startsWith("\033") && !key.isEmpty()) {
+                    char first = key.charAt(0);
+                    if (first >= 0x20) {
+                        insertString(key);
+                    }
+                }
+            }
+        }
+    }
+    }
+
     // =========================================================================
-    // 5. ターミナル生モード制御ヘルパー
+    // 5. ターミナル生モード制御ヘルパー (/dev/tty 直接制御)
     // =========================================================================
     static void setRawMode(boolean enable) {
+        String cmd = enable ? "stty -icanon -echo < /dev/tty" : "stty sane < /dev/tty";
         try {
-            if (enable) {
-                executeCommand("stty -icanon -echo");
-            } else {
-                executeCommand("stty sane");
-            }
-        } catch (Exception ignored) {}
+            new ProcessBuilder("sh", "-c", cmd).inheritIO().start().waitFor();
+        } catch (Exception e) {
+            try {
+                String fallback = enable ? "stty -icanon -echo" : "stty sane";
+                new ProcessBuilder("sh", "-c", fallback).inheritIO().start().waitFor();
+            } catch (Exception ignored) {}
+        }
     }
 
     static int readRawByte() {
