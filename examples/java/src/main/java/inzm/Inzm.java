@@ -780,16 +780,16 @@ public class Inzm {
                 System.out.printf("\033[%d;1H\033[7m %s%s \033[0m\033[K", rows, promptText, buf);
                 System.out.flush();
 
-                int c = readRawByte();
-                if (c == '\r' || c == '\n') {
+                String key = readKeySequence();
+                if (key.equals("\r") || key.equals("\n")) {
                     return buf.toString();
-                } else if (c == 0x07 || c == 0x1B || c == 0x03) {
+                } else if (key.equals("\u0007") || key.equals("\033") || key.equals("\u0003")) {
                     statusMessage = "Quit";
                     return null;
-                } else if (c == 0x7F || c == 0x08) {
+                } else if (key.equals("\u007F") || key.equals("\u0008")) {
                     if (buf.length() > 0) buf.deleteCharAt(buf.length() - 1);
-                } else if (c >= 0x20) {
-                    buf.append((char) c);
+                } else if (!key.startsWith("\033") && !key.isEmpty()) {
+                    buf.append(key);
                 }
             }
         }
@@ -887,59 +887,61 @@ public class Inzm {
             System.out.flush();
         }
 
-    // =========================================================================
-    // 4. メインループ & 入力処理 (エスケープシーケンス完全防壁)
-    // =========================================================================
-    void run() {
-        // どんな終了（Ctrl+Cや異常終了）でも確実に通常画面へ復元するシャットダウンフック
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
+        private final java.util.concurrent.atomic.AtomicBoolean cleanedUp = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        void cleanup() {
+            if (cleanedUp.compareAndSet(false, true)) {
                 setTitle("");
                 System.out.print("\033[?1049l\033[?25h");
                 System.out.flush();
                 setRawMode(false);
-            } catch (Exception ignored) {}
-        }));
-
-        setRawMode(true);
-        // 代替画面バッファ (Alternate Screen Buffer) に入り、画面を初期化
-        System.out.print("\033[?1049h\033[2J\033[H");
-        System.out.flush();
-
-        isEaw = probeEaw();
-        updateWindowSize();
-
-        // 端末ウィンドウリサイズ (SIGWINCH) をリアルタイム検知して再描画
-        try {
-            sun.misc.Signal.handle(new sun.misc.Signal("WINCH"), sig -> {
-                updateWindowSize();
-                if (running) {
-                    render();
-                }
-            });
-        } catch (Throwable ignored) {}
-
-        render();
-
-        try {
-            while (running) {
-                String key = readKeySequence();
-                if (key.isEmpty()) continue;
-
-                if (!statusMessage.startsWith("=>") && !statusMessage.startsWith("MLisp error") && !statusMessage.startsWith("Quit")) {
-                    statusMessage = "";
-                }
-
-                handleKey(key);
-                if (running) render();
             }
-        } finally {
-            setTitle("");
-            System.out.print("\033[?1049l\033[?25h");
-            System.out.flush();
-            setRawMode(false);
         }
-    }
+
+        // =====================================================================
+        // 4. メインループ & 入力処理
+        // =====================================================================
+        void run() {
+            // JVM強制終了（Ctrl+C等）時にも確実に cleanup() を呼ぶ保険
+            Runtime.getRuntime().addShutdownHook(new Thread(this::cleanup));
+
+            setRawMode(true);
+            System.out.print("\033[?1049h\033[2J\033[H");
+            System.out.flush();
+
+            try {
+                isEaw = probeEaw();
+                updateWindowSize();
+
+                // 端末ウィンドウリサイズ (SIGWINCH) をリアルタイム検知
+                try {
+                    sun.misc.Signal.handle(new sun.misc.Signal("WINCH"), sig -> {
+                        updateWindowSize();
+                        if (running) {
+                            render();
+                        }
+                    });
+                } catch (Throwable t) {
+                    // 非Unix環境やシグナル未サポート環境のフォールバック
+                }
+
+                render();
+
+                while (running) {
+                    String key = readKeySequence();
+                    if (key.isEmpty()) continue;
+
+                    if (!statusMessage.startsWith("=>") && !statusMessage.startsWith("MLisp error") && !statusMessage.startsWith("Quit")) {
+                        statusMessage = "";
+                    }
+
+                    handleKey(key);
+                    if (running) render();
+                }
+            } finally {
+                cleanup();
+            }
+        }
 
     String readKeySequence() {
         try {
@@ -1045,19 +1047,13 @@ public class Inzm {
         String cmd = enable ? "stty -icanon -echo < /dev/tty" : "stty sane < /dev/tty";
         try {
             new ProcessBuilder("sh", "-c", cmd).inheritIO().start().waitFor();
-        } catch (Exception e) {
+        } catch (Exception e1) {
             try {
                 String fallback = enable ? "stty -icanon -echo" : "stty sane";
                 new ProcessBuilder("sh", "-c", fallback).inheritIO().start().waitFor();
-            } catch (Exception ignored) {}
-        }
-    }
-
-    static int readRawByte() {
-        try {
-            return System.in.read();
-        } catch (Exception e) {
-            return -1;
+            } catch (Exception e2) {
+                System.err.println("Failed to configure terminal raw mode: " + e2.getMessage());
+            }
         }
     }
 
