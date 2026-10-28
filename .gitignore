@@ -5,6 +5,7 @@ examples/go/inzm
 target/
 __pycache__/
 *.pyc
+*.class
 
 
 # Test memos

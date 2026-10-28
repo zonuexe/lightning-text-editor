@@ -1,0 +1,23 @@
+Welcome to inzm (Gosling Emacs & Mocklisp in Java)!
+
+Honoring James Gosling's 1981 creation:
+Gosmacs (the first Emacs on Unix) and Mocklisp (MLisp).
+
+Try Mocklisp Evaluation (M-: or Esc then :):
+  (insert-string "/* Comment */")
+  (progn (end-of-line) (insert-string " -- DONE"))
+  (message "Hello from Mocklisp!")
+  (setq my-var 42)
+
+Emacs Keybindings:
+- Movement:
+  C-p (Up)    C-n (Down)
+  C-b (Left)  C-f (Right)
+  C-a (Home)  C-e (End)
+- Editing:
+  C-d (Delete char)
+  C-k (Kill line to end)
+  C-g (Cancel)
+- File & Exit:
+  C-x C-s (Save buffer)
+  C-x C-c (Quit)
