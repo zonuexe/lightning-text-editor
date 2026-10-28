@@ -691,12 +691,25 @@ public class Inzm {
 
         void moveCursor(int dx, int dy) {
             int newY = Math.max(0, Math.min(lines.size() - 1, cursorY + dy));
-            cursorY = newY;
-            String line = currentLine();
-            cursorX = Math.min(cursorX, line.length());
+            if (newY != cursorY) {
+                cursorY = newY;
+                cursorX = Math.min(cursorX, currentLine().length());
+            }
 
-            if (dx != 0) {
-                cursorX = Math.max(0, Math.min(line.length(), cursorX + dx));
+            if (dx > 0) {
+                if (cursorX < currentLine().length()) {
+                    cursorX++;
+                } else if (cursorY < lines.size() - 1) {
+                    cursorY++;
+                    cursorX = 0;
+                }
+            } else if (dx < 0) {
+                if (cursorX > 0) {
+                    cursorX--;
+                } else if (cursorY > 0) {
+                    cursorY--;
+                    cursorX = currentLine().length();
+                }
             }
         }
 
@@ -751,19 +764,27 @@ public class Inzm {
             System.out.printf("\033]0;%s\007", title);
         }
 
-        int getTerminalCols() {
+        int termCols = 80;
+        int termRows = 24;
+
+        void updateWindowSize() {
             try {
-                String s = executeCommand("tput cols");
-                return Integer.parseInt(s.trim());
-            } catch (Exception e) { return 80; }
+                String s = executeCommand("stty size"); // "rows cols"
+                String[] parts = s.trim().split("\\s+");
+                if (parts.length >= 2) {
+                    termRows = Integer.parseInt(parts[0]);
+                    termCols = Integer.parseInt(parts[1]);
+                    return;
+                }
+            } catch (Exception ignored) {}
+            try {
+                termCols = Integer.parseInt(executeCommand("tput cols").trim());
+                termRows = Integer.parseInt(executeCommand("tput lines").trim());
+            } catch (Exception ignored) {}
         }
 
-        int getTerminalRows() {
-            try {
-                String s = executeCommand("tput lines");
-                return Integer.parseInt(s.trim());
-            } catch (Exception e) { return 24; }
-        }
+        int getTerminalCols() { return termCols; }
+        int getTerminalRows() { return termRows; }
 
         void render() {
             int cols = getTerminalCols();
@@ -833,6 +854,7 @@ public class Inzm {
             System.out.flush();
 
             isEaw = probeEaw();
+            updateWindowSize();
             render();
 
             try {
@@ -887,7 +909,20 @@ public class Inzm {
                 case 0x1B -> handleEscapeSequence();
                 default -> {
                     if (c >= 0x20) {
-                        insertString(Character.toString((char) c));
+                        // UTF-8 マルチバイト文字（日本語など）の完全サポート
+                        int bytes = 1;
+                        if ((c & 0xE0) == 0xC0) bytes = 2;
+                        else if ((c & 0xF0) == 0xE0) bytes = 3;
+                        else if ((c & 0xF8) == 0xF0) bytes = 4;
+
+                        byte[] utfBuf = new byte[bytes];
+                        utfBuf[0] = (byte) c;
+                        for (int i = 1; i < bytes; i++) {
+                            try {
+                                utfBuf[i] = (byte) System.in.read();
+                            } catch (Exception ignored) {}
+                        }
+                        insertString(new String(utfBuf, StandardCharsets.UTF_8));
                     }
                 }
             }
@@ -895,24 +930,64 @@ public class Inzm {
 
         void handleEscapeSequence() {
             try {
-                if (System.in.available() == 0) return;
+                // エスケープシーケンスの到着を短時間待機（最大30ms）
+                long start = System.currentTimeMillis();
+                while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 30) {
+                    Thread.sleep(2);
+                }
+                if (System.in.available() == 0) {
+                    // 単独の Esc キー
+                    return;
+                }
+
                 int c2 = System.in.read();
                 if (c2 == ':') {
                     evalPrompt();
                 } else if (c2 == 'v') {
-                    moveCursor(0, -(getTerminalRows() - 1));
+                    moveCursor(0, -(termRows - 1));
                 } else if (c2 == '[') {
+                    // CSI シーケンス
+                    start = System.currentTimeMillis();
+                    while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 30) {
+                        Thread.sleep(2);
+                    }
+                    if (System.in.available() == 0) return;
+
                     int c3 = System.in.read();
                     switch (c3) {
                         case 'A' -> moveCursor(0, -1);
                         case 'B' -> moveCursor(0, 1);
                         case 'C' -> moveCursor(1, 0);
                         case 'D' -> moveCursor(-1, 0);
-                        case '5' -> moveCursor(0, -(getTerminalRows() - 1));
-                        case '6' -> moveCursor(0, getTerminalRows() - 1);
-                        case 'H' -> cursorX = 0;
-                        case 'F' -> cursorX = currentLine().length();
+                        case 'H', '1' -> {
+                            cursorX = 0;
+                            consumeTilde();
+                        }
+                        case 'F', '4' -> {
+                            cursorX = currentLine().length();
+                            consumeTilde();
+                        }
+                        case '5' -> {
+                            moveCursor(0, -(termRows - 1));
+                            consumeTilde();
+                        }
+                        case '6' -> {
+                            moveCursor(0, termRows - 1);
+                            consumeTilde();
+                        }
                     }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        private void consumeTilde() {
+            try {
+                long start = System.currentTimeMillis();
+                while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 15) {
+                    Thread.sleep(1);
+                }
+                if (System.in.available() > 0) {
+                    System.in.read(); // ~ を消費
                 }
             } catch (Exception ignored) {}
         }
