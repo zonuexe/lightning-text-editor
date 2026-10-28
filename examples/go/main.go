@@ -296,6 +296,7 @@ func (ed *Editor) Scroll(screenRows int) {
 }
 
 func (ed *Editor) Render() {
+	ed.UpdateTitle()
 	cols, rows := ed.WindowSize()
 	buf := ed.CurrentBuffer()
 
@@ -644,6 +645,21 @@ func (ed *Editor) PasteYanked() {
 	ed.StatusMessage = "1 line pasted"
 }
 
+func (ed *Editor) SetTitle(title string) {
+	os.Stdout.WriteString(fmt.Sprintf("\x1b]0;%s\x07", title))
+}
+
+func (ed *Editor) UpdateTitle() {
+	cur := ed.CurrentBuffer()
+	if cur != nil {
+		mod := ""
+		if cur.IsModified {
+			mod = "*"
+		}
+		ed.SetTitle(fmt.Sprintf("inzm - %s%s", cur.Filename, mod))
+	}
+}
+
 // --- 7. メインループ ---
 func (ed *Editor) Run() {
 	oldState, err := term.MakeRaw(ed.Fd)
@@ -653,6 +669,7 @@ func (ed *Editor) Run() {
 	}
 	ed.OldState = oldState
 	defer func() {
+		ed.SetTitle("")
 		// 代替画面から通常画面に戻してカーソル復帰
 		os.Stdout.WriteString("\x1b[?1049l\x1b[?25h")
 		term.Restore(ed.Fd, ed.OldState)
@@ -661,6 +678,7 @@ func (ed *Editor) Run() {
 	// 代替画面バッファに入る
 	os.Stdout.WriteString("\x1b[?1049h\x1b[2J\x1b[H")
 	isEaw = probeEaw()
+	ed.UpdateTitle()
 	ed.Render()
 
 	buf := make([]byte, 64)

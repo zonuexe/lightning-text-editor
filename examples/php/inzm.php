@@ -25,7 +25,12 @@ if (file_exists($filename)) {
 system("stty -icanon -echo");
 echo "\x1b[?1049h\x1b[2J\x1b[H"; // 代替画面バッファへ
 
+function setTitle(string $title) {
+    echo "\x1b]0;{$title}\x07";
+}
+
 function cleanup() {
+    setTitle("");
     echo "\x1b[?1049l\x1b[?25h";
     system("stty sane");
 }
@@ -90,6 +95,9 @@ function getStrWidth(string $str): int {
 function render() {
     global $lines, $cursorX, $cursorY, $rowOffset, $filename, $isModified, $statusMessage, $isEaw;
     [$cols, $rows] = getWindowSize();
+
+    $modTitle = $isModified ? "*" : "";
+    setTitle("ZONU inzm - " . basename($filename) . $modTitle);
 
     // nanoのレイアウト:
     // Row 1: タイトルバー

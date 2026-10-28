@@ -107,7 +107,12 @@ if os.path.exists(filename):
 fd = sys.stdin.fileno()
 old_settings = termios.tcgetattr(fd)
 
+def set_title(title: str):
+    sys.stdout.write(f"\x1b]0;{title}\x07")
+    sys.stdout.flush()
+
 def cleanup():
+    set_title("")
     sys.stdout.write("\x1b[?1049l\x1b[?25h")
     sys.stdout.flush()
     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
@@ -126,6 +131,9 @@ def get_window_size():
 def render():
     global row_offset, banner_message
     cols, rows = get_window_size()
+
+    mod_flag = "*" if is_modified else ""
+    set_title(f"ZOE - {os.path.basename(filename)}{mod_flag}")
 
     # JOE の画面構成:
     # Row 1: ステータスライン (反転表示: *file.py  Row 1  Col 1  14:30  Ctrl+K H for help)

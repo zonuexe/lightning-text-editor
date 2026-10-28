@@ -4,7 +4,7 @@ use crossterm::{
     execute,
     terminal::{
         disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-        Clear, ClearType,
+        Clear, ClearType, SetTitle,
     },
 };
 use std::env;
@@ -18,7 +18,7 @@ struct CleanUp;
 
 impl Drop for CleanUp {
     fn drop(&mut self) {
-        let _ = execute!(stdout(), LeaveAlternateScreen, cursor::Show);
+        let _ = execute!(stdout(), SetTitle(""), LeaveAlternateScreen, cursor::Show);
         let _ = disable_raw_mode();
     }
 }
@@ -143,6 +143,9 @@ impl Editor {
 
     // --- 画面描画 ---
     fn render(&mut self) -> Result<(), std::io::Error> {
+        let mod_mark = if self.is_modified { "*" } else { "" };
+        let _ = execute!(stdout(), SetTitle(format!("mined - {}{}", self.filename, mod_mark)));
+
         let (cols_u16, rows_u16) = crossterm::terminal::size().unwrap_or((80, 24));
         let cols = cols_u16 as usize;
         let rows = rows_u16 as usize;

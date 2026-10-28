@@ -252,7 +252,12 @@ function render() {
 }
 
 // --- 4. ターミナル生モード & クリーンアップ ---
+function setTitle(title: string) {
+  process.stdout.write(`\x1b]0;${title}\x07`);
+}
+
 function cleanup() {
+  setTitle(""); // タイトルリセット
   // 代替画面バッファを抜けて通常画面に戻し、カーソルを表示
   process.stdout.write("\x1b[?1049l\x1b[?25h");
   if (process.stdin.isTTY) {
@@ -271,6 +276,8 @@ if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
 }
 process.stdin.resume();
+
+setTitle(`inzm - ${filename}`);
 
 // 代替画面バッファ (Alternate Screen Buffer) に入る
 process.stdout.write("\x1b[?1049h");

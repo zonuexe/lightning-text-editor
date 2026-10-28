@@ -13,7 +13,12 @@ LAST_ERROR=""
 SHOW_PROMPT=1
 PROMPT_STR="* "
 
+set_title() {
+    printf '\033]0;%s\007' "$1"
+}
+
 cleanup() {
+    set_title ""
     cd "$ORIG_PWD" 2>/dev/null || true
     rm -f "$BUFFER" "$TEMP_SWAP"
     rm -rf "$COMP_DIR"
@@ -52,6 +57,7 @@ else
 fi
 
 echo "inzm.sh: Type '?' for command list, or '?<cmd>' (e.g. ?print) for details."
+set_title "inzm.sh - ${FILENAME:-untitled}"
 
 get_total_lines() {
     if [[ ! -s "$BUFFER" ]]; then

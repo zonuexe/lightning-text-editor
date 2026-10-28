@@ -3,6 +3,8 @@ node_modules/
 .bun/
 examples/go/inzm
 target/
+__pycache__/
+*.pyc
 
 
 # Test memos

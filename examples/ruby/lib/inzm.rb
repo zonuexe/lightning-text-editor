@@ -494,7 +494,8 @@ module Inzm
         return
       end
 
-      # 代替画面バッファ (Alternate Screen Buffer) に入り、画面を初期化
+      # タイトル設定 & 代替画面バッファ (Alternate Screen Buffer) に入り、画面を初期化
+      set_title("inzm - #{@filename}")
       print "\e[?1049h\e[2J\e[H"
 
       @running = true
@@ -587,7 +588,12 @@ module Inzm
       end
     end
 
+    def set_title(title)
+      print "\e]0;#{title}\a"
+    end
+
     def cleanup_terminal
+      set_title("")
       print "\e[?1049l\e[?25h"
     end
   end
