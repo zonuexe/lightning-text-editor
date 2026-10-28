@@ -769,17 +769,25 @@ public class Inzm {
 
         void updateWindowSize() {
             try {
-                String s = executeCommand("stty size"); // "rows cols"
-                String[] parts = s.trim().split("\\s+");
-                if (parts.length >= 2) {
-                    termRows = Integer.parseInt(parts[0]);
-                    termCols = Integer.parseInt(parts[1]);
-                    return;
+                Process p = new ProcessBuilder("sh", "-c", "stty size < /dev/tty").start();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                    String line = reader.readLine();
+                    if (line != null) {
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length >= 2) {
+                            termRows = Integer.parseInt(parts[0]);
+                            termCols = Integer.parseInt(parts[1]);
+                            return;
+                        }
+                    }
                 }
             } catch (Exception ignored) {}
+
             try {
-                termCols = Integer.parseInt(executeCommand("tput cols").trim());
-                termRows = Integer.parseInt(executeCommand("tput lines").trim());
+                String colsStr = executeCommand("tput cols 2>/dev/null || echo 80");
+                String rowsStr = executeCommand("tput lines 2>/dev/null || echo 24");
+                termCols = Integer.parseInt(colsStr.trim());
+                termRows = Integer.parseInt(rowsStr.trim());
             } catch (Exception ignored) {}
         }
 
@@ -855,6 +863,17 @@ public class Inzm {
 
         isEaw = probeEaw();
         updateWindowSize();
+
+        // 端末ウィンドウリサイズ (SIGWINCH) をリアルタイム検知して再描画
+        try {
+            sun.misc.Signal.handle(new sun.misc.Signal("WINCH"), sig -> {
+                updateWindowSize();
+                if (running) {
+                    render();
+                }
+            });
+        } catch (Throwable ignored) {}
+
         render();
 
         try {
