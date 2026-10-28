@@ -27,4 +27,21 @@ public class InzmTest {
 
         assertTrue(ed.lines.get(0).contains("Hello from defun!"));
     }
+
+    @Test
+    public void testSyntaxColorizerLanguages() {
+        assertEquals("PHP", new Inzm.SyntaxColorizer("index.php").getLangName());
+        assertEquals("Shell", new Inzm.SyntaxColorizer("script.sh").getLangName());
+        assertEquals("Go", new Inzm.SyntaxColorizer("main.go").getLangName());
+        assertEquals("Rust", new Inzm.SyntaxColorizer("main.rs").getLangName());
+        assertEquals("TypeScript", new Inzm.SyntaxColorizer("app.ts").getLangName());
+        assertEquals("Markdown", new Inzm.SyntaxColorizer("README.md").getLangName());
+        assertEquals("JSON", new Inzm.SyntaxColorizer("data.json").getLangName());
+        assertEquals("Lisp", new Inzm.SyntaxColorizer("init.ml").getLangName());
+
+        // PHPのハイライト出力をテスト
+        Inzm.SyntaxColorizer phpColorizer = new Inzm.SyntaxColorizer("test.php");
+        String highlighted = phpColorizer.highlightLine("<?php echo 'hello';");
+        assertTrue(highlighted.contains("\033["), "PHP line should contain ANSI color codes");
+    }
 }

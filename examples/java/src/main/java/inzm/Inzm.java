@@ -115,12 +115,31 @@ public class Inzm {
 
         public SyntaxColorizer(String filename) {
             String lower = filename.toLowerCase();
+            String base = Path.of(filename).getFileName().toString().toLowerCase();
             String style = null;
             String name = "Text";
 
             if (lower.endsWith(".java")) {
                 style = SyntaxConstants.SYNTAX_STYLE_JAVA;
                 name = "Java";
+            } else if (lower.endsWith(".php")) {
+                style = SyntaxConstants.SYNTAX_STYLE_PHP;
+                name = "PHP";
+            } else if (lower.endsWith(".sh") || lower.endsWith(".bash") || lower.endsWith(".zsh")) {
+                style = SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL;
+                name = "Shell";
+            } else if (lower.endsWith(".go")) {
+                style = SyntaxConstants.SYNTAX_STYLE_GO;
+                name = "Go";
+            } else if (lower.endsWith(".rs")) {
+                style = SyntaxConstants.SYNTAX_STYLE_RUST;
+                name = "Rust";
+            } else if (lower.endsWith(".ts") || lower.endsWith(".tsx")) {
+                style = SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT;
+                name = "TypeScript";
+            } else if (lower.endsWith(".js") || lower.endsWith(".jsx") || lower.endsWith(".mjs")) {
+                style = SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT;
+                name = "JavaScript";
             } else if (lower.endsWith(".py")) {
                 style = SyntaxConstants.SYNTAX_STYLE_PYTHON;
                 name = "Python";
@@ -130,22 +149,37 @@ public class Inzm {
             } else if (lower.endsWith(".c") || lower.endsWith(".h")) {
                 style = SyntaxConstants.SYNTAX_STYLE_C;
                 name = "C";
-            } else if (lower.endsWith(".cpp") || lower.endsWith(".hpp") || lower.endsWith(".cc")) {
+            } else if (lower.endsWith(".cpp") || lower.endsWith(".hpp") || lower.endsWith(".cc") || lower.endsWith(".cxx")) {
                 style = SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS;
                 name = "C++";
-            } else if (lower.endsWith(".js") || lower.endsWith(".ts")) {
-                style = SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT;
-                name = "JavaScript";
             } else if (lower.endsWith(".json")) {
                 style = SyntaxConstants.SYNTAX_STYLE_JSON;
                 name = "JSON";
+            } else if (lower.endsWith(".md") || lower.endsWith(".markdown")) {
+                style = SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
+                name = "Markdown";
+            } else if (lower.endsWith(".yml") || lower.endsWith(".yaml")) {
+                style = SyntaxConstants.SYNTAX_STYLE_YAML;
+                name = "YAML";
             } else if (lower.endsWith(".html") || lower.endsWith(".htm")) {
                 style = SyntaxConstants.SYNTAX_STYLE_HTML;
                 name = "HTML";
             } else if (lower.endsWith(".xml")) {
                 style = SyntaxConstants.SYNTAX_STYLE_XML;
                 name = "XML";
-            } else if (lower.endsWith(".ml") || lower.endsWith(".lisp") || lower.endsWith(".cl")) {
+            } else if (lower.endsWith(".sql")) {
+                style = SyntaxConstants.SYNTAX_STYLE_SQL;
+                name = "SQL";
+            } else if (lower.endsWith(".properties") || lower.endsWith(".ini")) {
+                style = SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE;
+                name = "Properties";
+            } else if (base.equals("dockerfile")) {
+                style = SyntaxConstants.SYNTAX_STYLE_DOCKERFILE;
+                name = "Dockerfile";
+            } else if (base.equals("makefile")) {
+                style = SyntaxConstants.SYNTAX_STYLE_MAKEFILE;
+                name = "Makefile";
+            } else if (lower.endsWith(".ml") || lower.endsWith(".lisp") || lower.endsWith(".cl") || lower.endsWith(".el")) {
                 style = SyntaxConstants.SYNTAX_STYLE_LISP;
                 name = "Lisp";
             }

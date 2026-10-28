@@ -11,7 +11,13 @@
    - **`defun`**: Gosling Emacs 伝統構文 `(defun (name expr1 expr2 ...))` でユーザー定義関数を自由に宣言可能！
    - **`auto-execute`**: `(auto-execute "fn-name" "*.java")` のようにファイル名パターンに応じた自動実行フックを設定可能！
    - `(insert-string "...")`, `(beginning-of-line)`, `(end-of-line)`, `(kill-to-end-of-line)`, `(message "...")` などの Gosmacs 伝統プリミティブを網羅。
-2. **RSyntaxTextArea による本格シンタックスハイライト**:
+2. **RSyntaxTextArea による本格シンタックスハイライト（他言語フル対応！）**:
+   - Java 界で長年愛される名門字句解析エンジン RSyntaxTextArea をヘッドレス統合。
+   - **本リポジトリで登場するすべての言語を完全網羅**：
+     - **PHP** (`.php`), **Shell** (`.sh`, `.bash`, `.zsh`), **Go** (`.go`), **Rust** (`.rs`), **TypeScript** (`.ts`, `.tsx`)
+     - **Java** (`.java`), **Python** (`.py`), **Ruby** (`.rb`), **C/C++** (`.c`, `.cpp`), **Lisp** (`.ml`, `.lisp`, `.cl`)
+     - **Markdown** (`.md`), **JSON** (`.json`), **YAML** (`.yml`), **SQL** (`.sql`), **Dockerfile**, **Makefile**
+   - 編集時のみ差分解析するハイライトキャッシュにより、カーソル移動やスクロールはゼロ遅延。
 3. **`M-:` による動的 S式 Eval & `init.ml` 自動評価**:
    - 起動時にカレントディレクトリの `./init.ml` を自動探索して評価。
    - エディタ実行中に **`M-:`**（Alt + `:` または Esc → `:`）を押すと、S式を入力してその場でエディタを直接操作・自動編集可能！
