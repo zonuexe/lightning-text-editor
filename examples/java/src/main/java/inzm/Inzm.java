@@ -326,6 +326,10 @@ public class Inzm {
 
     static class MLEvaluator {
         private final Map<String, Object> globals = new HashMap<>();
+        private final Map<String, List<Object>> userFunctions = new HashMap<>();
+        private final List<AutoExecuteRule> autoExecuteRules = new ArrayList<>();
+
+        record AutoExecuteRule(String fnName, String pattern) {}
 
         public Object eval(Object expr, Editor ed) {
             if (expr == null) return null;
@@ -341,13 +345,72 @@ public class Inzm {
                 String fnName = (head instanceof MLSymbol s) ? s.name : String.valueOf(head);
                 List<Object> args = list.subList(1, list.size());
 
-                return callPrimitive(fnName, args, ed);
+                return callFunction(fnName, args, ed);
             }
             return null;
         }
 
-        private Object callPrimitive(String fn, List<Object> args, Editor ed) {
+        public void applyAutoExecute(Editor ed) {
+            String fname = Path.of(ed.filename).getFileName().toString();
+            for (AutoExecuteRule rule : autoExecuteRules) {
+                if (matchesGlob(fname, rule.pattern)) {
+                    if (userFunctions.containsKey(rule.fnName)) {
+                        for (Object expr : userFunctions.get(rule.fnName)) {
+                            eval(expr, ed);
+                        }
+                        ed.statusMessage = "Executed auto-hook: " + rule.fnName;
+                    }
+                }
+            }
+        }
+
+        private boolean matchesGlob(String text, String glob) {
+            String regex = "^" + glob.replace(".", "\\.").replace("*", ".*").replace("?", ".") + "$";
+            return Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(text).matches();
+        }
+
+        private Object callFunction(String fn, List<Object> args, Editor ed) {
             switch (fn) {
+                // --- defun (ユーザー関数定義) ---
+                case "defun" -> {
+                    if (args.isEmpty()) return 0L;
+                    String name = null;
+                    List<Object> body = new ArrayList<>();
+
+                    // パターンA (Gosling Emacs伝統): (defun (fn-name body1 body2 ...))
+                    if (args.get(0) instanceof List<?> fnList && !fnList.isEmpty()) {
+                        Object first = fnList.get(0);
+                        name = (first instanceof MLSymbol s) ? s.name : String.valueOf(first);
+                        for (int i = 1; i < fnList.size(); i++) {
+                            body.add(fnList.get(i));
+                        }
+                    }
+                    // パターンB (標準Lisp風): (defun fn-name body1 body2 ...)
+                    else if (args.get(0) instanceof MLSymbol sym) {
+                        name = sym.name;
+                        body.addAll(args.subList(1, args.size()));
+                    }
+
+                    if (name != null) {
+                        userFunctions.put(name, body);
+                        return new MLSymbol(name);
+                    }
+                    return 0L;
+                }
+
+                // --- auto-execute (ファイルパターンに応じた自動実行フック) ---
+                case "auto-execute" -> {
+                    if (args.size() >= 2) {
+                        Object fnArg = eval(args.get(0), ed);
+                        Object patArg = eval(args.get(1), ed);
+                        String fnName = (fnArg != null) ? fnArg.toString() : "";
+                        String pat = (patArg != null) ? patArg.toString() : "";
+                        autoExecuteRules.add(new AutoExecuteRule(fnName, pat));
+                        return 0L;
+                    }
+                    return 0L;
+                }
+
                 case "progn" -> {
                     Object last = null;
                     for (Object arg : args) {
@@ -464,6 +527,14 @@ public class Inzm {
                     return res;
                 }
                 default -> {
+                    if (userFunctions.containsKey(fn)) {
+                        List<Object> body = userFunctions.get(fn);
+                        Object last = 0L;
+                        for (Object expr : body) {
+                            last = eval(expr, ed);
+                        }
+                        return last;
+                    }
                     ed.statusMessage = "Unknown Mocklisp fn: " + fn;
                     return 0L;
                 }
@@ -503,6 +574,7 @@ public class Inzm {
             loadFile();
             updateHighlight();
             loadInitScript();
+            mlisp.applyAutoExecute(this);
         }
 
         void updateHighlight() {

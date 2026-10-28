@@ -6,13 +6,12 @@
 
 ## 🌟 特徴
 
-1. **RSyntaxTextArea による本格シンタックスハイライト**:
-   - Java 界で長年愛される名門字句解析エンジン RSyntaxTextArea をヘッドレス統合。
-   - `.java`, `.py`, `.rb`, `.c`, `.cpp`, `.js`, `.json`, `.html`, `.xml`, `.ml` (Lisp) などを自動判別し、キーワード・コメント・文字列・データ型を ANSI フルカラーで着色。
-   - 編集時のみ差分解析するハイライトキャッシュにより、カーソル移動やスクロールはゼロ遅延。
-2. **内蔵 Mocklisp (MLisp) 実行エンジン**:
+1. **Mocklisp (MLisp) 組み込み実行エンジン (`defun` & `auto-execute` 完全対応)**:
    - リスト構造（cons）を持たず、文字列・整数とエディタのバッファ駆動に特化したゴスリンのオリジナル手続き型S式体系を再現。
+   - **`defun`**: Gosling Emacs 伝統構文 `(defun (name expr1 expr2 ...))` でユーザー定義関数を自由に宣言可能！
+   - **`auto-execute`**: `(auto-execute "fn-name" "*.java")` のようにファイル名パターンに応じた自動実行フックを設定可能！
    - `(insert-string "...")`, `(beginning-of-line)`, `(end-of-line)`, `(kill-to-end-of-line)`, `(message "...")` などの Gosmacs 伝統プリミティブを網羅。
+2. **RSyntaxTextArea による本格シンタックスハイライト**:
 3. **`M-:` による動的 S式 Eval & `init.ml` 自動評価**:
    - 起動時にカレントディレクトリの `./init.ml` を自動探索して評価。
    - エディタ実行中に **`M-:`**（Alt + `:` または Esc → `:`）を押すと、S式を入力してその場でエディタを直接操作・自動編集可能！
@@ -67,10 +66,12 @@ cd examples/java
 
 ---
 
-## 📜 主な Mocklisp プリミティブ
+## 📜 主な Mocklisp プリミティブ & 構文
 
 | S式 | 動作 |
 | :--- | :--- |
+| `(defun (name e1 e2 ...))` | **ユーザー関数を定義（Gosling Emacs 伝統構文）** |
+| `(auto-execute "fn" "glob")` | **指定拡張子・ファイルを開いたときの自動実行フック** |
 | `(insert-string <str>)` | 現在位置に文字列を挿入 |
 | `(insert-character <int>)` | 文字コードに対応する文字を挿入 |
 | `(beginning-of-line)` | 行頭へ移動 |
