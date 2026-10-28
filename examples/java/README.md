@@ -1,22 +1,25 @@
-# inzm.java - Java (Gosling Emacs & Mocklisp オマージュ) 実装サンプル
+# inzm - Java (Gosling Emacs & Mocklisp, RSyntaxTextArea ハイライト搭載)
 
-ビルドツール（Maven / Gradle）不要・外部ライブラリ一切なし！
-**Java 21+ 単一ソースファイル直接実行** で動く、**James Gosling**（Javaの父）が1981年に開発した伝説の **Gosling Emacs (Gosmacs)** およびその拡張言語 **Mocklisp (MLisp)** に深いリスペクトを捧げたエディタ実装です。
+**Gradle** によるビルドと **RSyntaxTextArea** による本格シンタックスハイライトを搭載した、**James Gosling**（Javaの父）の原点である伝説の **Gosling Emacs (Gosmacs)** およびその拡張言語 **Mocklisp (MLisp)** オマージュエディタです。
 
 ---
 
-## 🌟 歴史的背景とロマン
+## 🌟 特徴
 
-1. **Java の父がかつて作ったエディタ**:
-   - 1981年、CMUのジェームズ・ゴスリン（James Gosling）は、Unix向け初の実用的Emacsクローンである「Gosling Emacs」を開発しました。
-   - そのエディタを拡張するためにゴスリン自身が考案したS式スクリプト言語が **「Mocklisp（MLisp）」** です。
-   - のちにゴスリンが生み出す言語「Java」自身を使って、ゴスリンの原点である「Gosling Emacs」と「Mocklisp」を再現するという、計算機科学史における究極のオマージュです。
-2. **Mocklisp（MLisp）の内包**:
-   - 外部ライブラリを一切使わず、Java標準機能のみで軽量S式パーサ＆評価器を内蔵。
-   - `(insert-string "...")`, `(beginning-of-line)`, `(end-of-line)`, `(progn ...)`, `(setq ...)` などの伝統的なGosmacsプリミティブを解釈・実行します。
-3. **`M-:` による動的 Mocklisp 評価 & `init.ml` の自動実行**:
-   - 起動時に `./init.ml` を自動探索して評価。
-   - エディタ実行中に **`M-:`**（Alt + `:` または Esc → `:`）を押すと、S式を入力して動いているエディタをリアルタイム操作可能！
+1. **RSyntaxTextArea による本格シンタックスハイライト**:
+   - Java 界で長年愛される名門字句解析エンジン RSyntaxTextArea をヘッドレス統合。
+   - `.java`, `.py`, `.rb`, `.c`, `.cpp`, `.js`, `.json`, `.html`, `.xml`, `.ml` (Lisp) などを自動判別し、キーワード・コメント・文字列・データ型を ANSI フルカラーで着色。
+   - 編集時のみ差分解析するハイライトキャッシュにより、カーソル移動やスクロールはゼロ遅延。
+2. **内蔵 Mocklisp (MLisp) 実行エンジン**:
+   - リスト構造（cons）を持たず、文字列・整数とエディタのバッファ駆動に特化したゴスリンのオリジナル手続き型S式体系を再現。
+   - `(insert-string "...")`, `(beginning-of-line)`, `(end-of-line)`, `(kill-to-end-of-line)`, `(message "...")` などの Gosmacs 伝統プリミティブを網羅。
+3. **`M-:` による動的 S式 Eval & `init.ml` 自動評価**:
+   - 起動時にカレントディレクトリの `./init.ml` を自動探索して評価。
+   - エディタ実行中に **`M-:`**（Alt + `:` または Esc → `:`）を押すと、S式を入力してその場でエディタを直接操作・自動編集可能！
+4. **Emacs キーバインド & ターミナル作法**:
+   - `C-p`, `C-n`, `C-f`, `C-b`, `C-a`, `C-e`, `C-d`, `C-k`
+   - `C-x C-s`（保存）、`C-x C-c`（終了）
+   - 代替画面バッファ (`\033[?1049h`)、DSRプローブによる EAW 自動検知、動的ウィンドウタイトル設定完備。
 
 ---
 
@@ -24,9 +27,9 @@
 
 ```bash
 cd examples/java
-java inzm.java sample.txt
+./gradlew run --args="sample.txt"
 ```
-（単一ファイル直接実行により、事前コンパイルなしで即座に起動します）
+（Gradle Wrapper により、環境に Gradle がインストールされていなくても即座にビルド＆起動します）
 
 ---
 
@@ -49,7 +52,7 @@ java inzm.java sample.txt
 
 ### 2. Mocklisp (MLisp) 式の評価 (`M-:`)
 
-**`M-:`**（Alt + `:` または Esc を押した後に `:`）を押すと、最下部に `Eval (MLisp): ` プロンプトが出現します。以下のS式を入力して Enter を押してみてください：
+**`M-:`**（Alt + `:` または Esc を押した後に `:`）を押すと、最下部に `Eval (MLisp): ` プロンプトが出現します：
 
 ```lisp
 ;; 現在行の末尾に移動してコメントを挿入
@@ -64,7 +67,7 @@ java inzm.java sample.txt
 
 ---
 
-## 📜 サポートしている主な Mocklisp プリミティブ
+## 📜 主な Mocklisp プリミティブ
 
 | S式 | 動作 |
 | :--- | :--- |

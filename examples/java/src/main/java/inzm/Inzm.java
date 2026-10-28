@@ -1,8 +1,8 @@
-///usr/bin/env java "$0" "$@" ; exit $?
+package inzm;
+
 /*
- * inzm.java - Gosling Emacs & Mocklisp (MLisp) homage in Java
+ * Inzm.java - Gosling Emacs & Mocklisp (MLisp) with RSyntaxTextArea syntax highlighting in Java
  * Honoring James Gosling's 1981 creation: Gosmacs and its extension language Mocklisp.
- * Run directly with: java inzm.java [filename]
  */
 
 import java.io.*;
@@ -10,8 +10,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.regex.*;
+import javax.swing.text.Segment;
 
-public class inzm {
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.Token;
+import org.fife.ui.rsyntaxtextarea.TokenMaker;
+import org.fife.ui.rsyntaxtextarea.TokenMakerFactory;
+import org.fife.ui.rsyntaxtextarea.TokenTypes;
+
+public class Inzm {
 
     // =========================================================================
     // 0. 文字幅判定 & DSR EAW 自動検知
@@ -19,7 +26,6 @@ public class inzm {
     static boolean isEaw = true;
 
     static int getCharWidth(int code) {
-        // 1. 確定全角 (Wide / Fullwidth)
         if ((code >= 0x1100 && code <= 0x115F) ||
             (code >= 0x2E80 && code <= 0xA4CF) ||
             (code >= 0xAC00 && code <= 0xD7A3) ||
@@ -31,7 +37,6 @@ public class inzm {
             return 2;
         }
 
-        // 2. 東アジア曖昧幅 (Ambiguous Width: ギリシャ、キリル、記号など)
         if ((code >= 0x0370 && code <= 0x03FF) ||
             (code >= 0x0400 && code <= 0x04FF) ||
             (code >= 0x2010 && code <= 0x205E) ||
@@ -72,7 +77,6 @@ public class inzm {
         return sb.toString();
     }
 
-    // DSRプローブによる EAW 自動検知
     static boolean probeEaw() {
         try {
             System.out.print("\033[1;1H\033[2Kα\033[6n");
@@ -103,7 +107,119 @@ public class inzm {
     }
 
     // =========================================================================
-    // 1. Mocklisp (MLisp) 軽量S式パーサ & 実行エンジン
+    // 1. RSyntaxTextArea シンタックスハイライター統合
+    // =========================================================================
+    static class SyntaxColorizer {
+        private final TokenMaker tokenMaker;
+        private final String langName;
+
+        public SyntaxColorizer(String filename) {
+            String lower = filename.toLowerCase();
+            String style = null;
+            String name = "Text";
+
+            if (lower.endsWith(".java")) {
+                style = SyntaxConstants.SYNTAX_STYLE_JAVA;
+                name = "Java";
+            } else if (lower.endsWith(".py")) {
+                style = SyntaxConstants.SYNTAX_STYLE_PYTHON;
+                name = "Python";
+            } else if (lower.endsWith(".rb")) {
+                style = SyntaxConstants.SYNTAX_STYLE_RUBY;
+                name = "Ruby";
+            } else if (lower.endsWith(".c") || lower.endsWith(".h")) {
+                style = SyntaxConstants.SYNTAX_STYLE_C;
+                name = "C";
+            } else if (lower.endsWith(".cpp") || lower.endsWith(".hpp") || lower.endsWith(".cc")) {
+                style = SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS;
+                name = "C++";
+            } else if (lower.endsWith(".js") || lower.endsWith(".ts")) {
+                style = SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT;
+                name = "JavaScript";
+            } else if (lower.endsWith(".json")) {
+                style = SyntaxConstants.SYNTAX_STYLE_JSON;
+                name = "JSON";
+            } else if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+                style = SyntaxConstants.SYNTAX_STYLE_HTML;
+                name = "HTML";
+            } else if (lower.endsWith(".xml")) {
+                style = SyntaxConstants.SYNTAX_STYLE_XML;
+                name = "XML";
+            } else if (lower.endsWith(".ml") || lower.endsWith(".lisp") || lower.endsWith(".cl")) {
+                style = SyntaxConstants.SYNTAX_STYLE_LISP;
+                name = "Lisp";
+            }
+
+            if (style != null) {
+                this.tokenMaker = TokenMakerFactory.getDefaultInstance().getTokenMaker(style);
+                this.langName = name;
+            } else {
+                this.tokenMaker = null;
+                this.langName = "Text";
+            }
+        }
+
+        public String getLangName() { return langName; }
+
+        public String highlightLine(String line) {
+            if (tokenMaker == null || line.isEmpty()) {
+                return line;
+            }
+
+            char[] chars = line.toCharArray();
+            Segment segment = new Segment(chars, 0, chars.length);
+            Token token = tokenMaker.getTokenList(segment, TokenTypes.NULL, 0);
+
+            StringBuilder sb = new StringBuilder();
+            while (token != null && token.isPaintable()) {
+                String color = tokenToAnsi(token.getType());
+                sb.append(color).append(token.getLexeme()).append("\033[0m");
+                token = token.getNextToken();
+            }
+            return sb.toString();
+        }
+
+        private String tokenToAnsi(int tokenType) {
+            switch (tokenType) {
+                // キーワード
+                case TokenTypes.RESERVED_WORD, TokenTypes.RESERVED_WORD_2 -> {
+                    return "\033[1;36m"; // 太字シアン
+                }
+                // データ型
+                case TokenTypes.DATA_TYPE -> {
+                    return "\033[34m"; // 青
+                }
+                // コメント
+                case TokenTypes.COMMENT_EOL, TokenTypes.COMMENT_MULTILINE,
+                     TokenTypes.COMMENT_DOCUMENTATION, TokenTypes.COMMENT_KEYWORD -> {
+                    return "\033[90m"; // グレー
+                }
+                // 文字列
+                case TokenTypes.LITERAL_STRING_DOUBLE_QUOTE, TokenTypes.LITERAL_CHAR -> {
+                    return "\033[32m"; // 緑
+                }
+                // 数値
+                case TokenTypes.LITERAL_NUMBER_DECIMAL_INT, TokenTypes.LITERAL_NUMBER_FLOAT,
+                     TokenTypes.LITERAL_NUMBER_HEXADECIMAL -> {
+                    return "\033[35m"; // マゼンタ / 紫
+                }
+                // 関数 / メソッド
+                case TokenTypes.FUNCTION -> {
+                    return "\033[33m"; // 黄色
+                }
+                // 演算子
+                case TokenTypes.OPERATOR -> {
+                    return "\033[37m"; // 白
+                }
+                default -> {
+                    return "\033[0m"; // デフォルト
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // 2. Mocklisp (MLisp) 軽量S式パーサ & 実行エンジン
     // =========================================================================
     static class MLSymbol {
         public final String name;
@@ -136,7 +252,7 @@ public class inzm {
                 char c = src.charAt(pos);
                 if (Character.isWhitespace(c)) {
                     pos++;
-                } else if (c == ';') { // 行コメント
+                } else if (c == ';') {
                     while (pos < src.length() && src.charAt(pos) != '\n') pos++;
                 } else {
                     break;
@@ -170,7 +286,7 @@ public class inzm {
         }
 
         private String parseString() {
-            pos++; // skip "
+            pos++;
             StringBuilder sb = new StringBuilder();
             while (pos < src.length()) {
                 char c = src.charAt(pos++);
@@ -232,7 +348,6 @@ public class inzm {
 
         private Object callPrimitive(String fn, List<Object> args, Editor ed) {
             switch (fn) {
-                // --- 制御構文 ---
                 case "progn" -> {
                     Object last = null;
                     for (Object arg : args) {
@@ -268,8 +383,6 @@ public class inzm {
                     }
                     return "";
                 }
-
-                // --- Gosmacs / Mocklisp エディタ基本プリミティブ ---
                 case "insert-string" -> {
                     if (!args.isEmpty()) {
                         Object val = eval(args.get(0), ed);
@@ -332,11 +445,8 @@ public class inzm {
                     return 0L;
                 }
                 case "dot" -> {
-                    // バッファ先頭からのオフセット (簡易版)
                     return (long) (ed.cursorY * 1000 + ed.cursorX);
                 }
-
-                // --- 算術演算 ---
                 case "+" -> {
                     long sum = 0;
                     for (Object a : args) {
@@ -370,11 +480,12 @@ public class inzm {
     }
 
     // =========================================================================
-    // 2. Editor 本体
+    // 3. Editor 本体 (RSyntaxTextArea によるハイライトキャッシュ対応)
     // =========================================================================
     static class Editor {
         String filename;
         List<String> lines = new ArrayList<>(List.of(""));
+        List<String> highlightedLines = new ArrayList<>();
         int cursorX = 0;
         int cursorY = 0;
         int rowOffset = 0;
@@ -384,11 +495,21 @@ public class inzm {
         boolean prefixCtrlX = false;
 
         final MLEvaluator mlisp = new MLEvaluator();
+        final SyntaxColorizer colorizer;
 
         Editor(String filename) {
             this.filename = (filename != null && !filename.isBlank()) ? filename : "untitled.txt";
+            this.colorizer = new SyntaxColorizer(this.filename);
             loadFile();
+            updateHighlight();
             loadInitScript();
+        }
+
+        void updateHighlight() {
+            highlightedLines.clear();
+            for (String l : lines) {
+                highlightedLines.add(colorizer.highlightLine(l));
+            }
         }
 
         void loadFile() {
@@ -433,6 +554,7 @@ public class inzm {
             lines.set(cursorY, before + s + after);
             cursorX += s.length();
             isModified = true;
+            updateHighlight();
         }
 
         void insertNewline() {
@@ -444,6 +566,7 @@ public class inzm {
             cursorY++;
             cursorX = 0;
             isModified = true;
+            updateHighlight();
         }
 
         void deleteBackward() {
@@ -454,6 +577,7 @@ public class inzm {
                 lines.set(cursorY, before + after);
                 cursorX--;
                 isModified = true;
+                updateHighlight();
             } else if (cursorY > 0) {
                 int prevLen = lines.get(cursorY - 1).length();
                 lines.set(cursorY - 1, lines.get(cursorY - 1) + currentLine());
@@ -461,6 +585,7 @@ public class inzm {
                 cursorY--;
                 cursorX = prevLen;
                 isModified = true;
+                updateHighlight();
             }
         }
 
@@ -471,10 +596,12 @@ public class inzm {
                 String after = line.substring(cursorX + 1);
                 lines.set(cursorY, before + after);
                 isModified = true;
+                updateHighlight();
             } else if (cursorY < lines.size() - 1) {
                 lines.set(cursorY, line + lines.get(cursorY + 1));
                 lines.remove(cursorY + 1);
                 isModified = true;
+                updateHighlight();
             }
         }
 
@@ -487,6 +614,7 @@ public class inzm {
                 lines.remove(cursorY + 1);
             }
             isModified = true;
+            updateHighlight();
         }
 
         void moveCursor(int dx, int dy) {
@@ -536,10 +664,10 @@ public class inzm {
                 int c = readRawByte();
                 if (c == '\r' || c == '\n') {
                     return buf.toString();
-                } else if (c == 0x07 || c == 0x1B || c == 0x03) { // C-g, Esc, C-c
+                } else if (c == 0x07 || c == 0x1B || c == 0x03) {
                     statusMessage = "Quit";
                     return null;
-                } else if (c == 0x7F || c == 0x08) { // Backspace
+                } else if (c == 0x7F || c == 0x08) {
                     if (buf.length() > 0) buf.deleteCharAt(buf.length() - 1);
                 } else if (c >= 0x20) {
                     buf.append((char) c);
@@ -576,9 +704,9 @@ public class inzm {
             setTitle("inzm (Gosmacs) - " + filename + (isModified ? "*" : ""));
 
             StringBuilder out = new StringBuilder();
-            out.append("\033[?25l"); // カーソル隠す
+            out.append("\033[?25l");
 
-            // 1. 本文テキストエリア
+            // 1. 本文テキストエリア (キャッシュされた RSyntaxTextArea ハイライト行を出力！)
             for (int i = 0; i < screenRows; i++) {
                 int fileRow = rowOffset + i;
                 out.append(String.format("\033[%d;1H", i + 1));
@@ -586,7 +714,8 @@ public class inzm {
                 if (fileRow < lines.size()) {
                     String lineNum = String.format("%3d ", fileRow + 1);
                     out.append("\033[90m").append(lineNum).append("\033[0m");
-                    out.append(lines.get(fileRow));
+                    String text = (fileRow < highlightedLines.size()) ? highlightedLines.get(fileRow) : lines.get(fileRow);
+                    out.append(text);
                     out.append("\033[K");
                 } else {
                     out.append("\033[90m  ~ \033[0m\033[K");
@@ -598,8 +727,9 @@ public class inzm {
             String modMark = isModified ? "**" : "--";
             String pfxMark = prefixCtrlX ? " C-x-" : "";
             String eawLabel = isEaw ? "EAW" : "Non-EAW";
-            String leftStatus = String.format("-%s-  [Gosmacs:MLisp] %s  (%s)%s  L%d/C%d",
-                    modMark, filename, eawLabel, pfxMark, cursorY + 1, cursorX + 1);
+            String langTag = colorizer.getLangName();
+            String leftStatus = String.format("-%s-  [Gosmacs:%s] %s  (%s)%s  L%d/C%d",
+                    modMark, langTag, filename, eawLabel, pfxMark, cursorY + 1, cursorX + 1);
             String rightStatus = (!statusMessage.isEmpty())
                     ? statusMessage + " | M-:: MLisp "
                     : "M-:: MLisp | C-x C-s: Save | C-x C-c: Quit ";
@@ -614,7 +744,7 @@ public class inzm {
             String line = currentLine();
             String before = line.substring(0, Math.min(cursorX, line.length()));
             int visualX = getStringWidth(before);
-            int screenX = visualX + 5; // 行番号幅 (4) + 1
+            int screenX = visualX + 5;
 
             out.append(String.format("\033[%d;%dH\033[?25h", screenY, screenX));
 
@@ -623,11 +753,11 @@ public class inzm {
         }
 
         // =====================================================================
-        // 3. メインループ & 入力処理
+        // 4. メインループ & 入力処理
         // =====================================================================
         void run() {
             setRawMode(true);
-            System.out.print("\033[?1049h\033[2J\033[H"); // 代替画面
+            System.out.print("\033[?1049h\033[2J\033[H");
             System.out.flush();
 
             isEaw = probeEaw();
@@ -654,12 +784,11 @@ public class inzm {
         }
 
         void handleKey(int c) {
-            // C-x プレフィックス処理
             if (prefixCtrlX) {
                 prefixCtrlX = false;
-                if (c == 0x13) { // C-s : 保存
+                if (c == 0x13) {
                     saveFile();
-                } else if (c == 0x03) { // C-c : 終了
+                } else if (c == 0x03) {
                     running = false;
                 } else {
                     statusMessage = String.format("C-x %c is undefined", (char)c);
@@ -668,24 +797,22 @@ public class inzm {
             }
 
             switch (c) {
-                case 0x18 -> { // C-x
-                    prefixCtrlX = true;
-                }
-                case 0x10 -> moveCursor(0, -1); // C-p (Previous line)
-                case 0x0E -> moveCursor(0, 1);  // C-n (Next line)
-                case 0x06 -> moveCursor(1, 0);  // C-f (Forward char)
-                case 0x02 -> moveCursor(-1, 0); // C-b (Backward char)
-                case 0x01 -> cursorX = 0;       // C-a (Beginning of line)
-                case 0x05 -> cursorX = currentLine().length(); // C-e (End of line)
-                case 0x04 -> deleteForward();   // C-d (Delete char)
-                case 0x0B -> killToEndOfLine(); // C-k (Kill line)
-                case 0x07 -> {                  // C-g (Cancel)
+                case 0x18 -> prefixCtrlX = true; // C-x
+                case 0x10 -> moveCursor(0, -1); // C-p
+                case 0x0E -> moveCursor(0, 1);  // C-n
+                case 0x06 -> moveCursor(1, 0);  // C-f
+                case 0x02 -> moveCursor(-1, 0); // C-b
+                case 0x01 -> cursorX = 0;       // C-a
+                case 0x05 -> cursorX = currentLine().length(); // C-e
+                case 0x04 -> deleteForward();   // C-d
+                case 0x0B -> killToEndOfLine(); // C-k
+                case 0x07 -> {                  // C-g
                     prefixCtrlX = false;
                     statusMessage = "Quit";
                 }
                 case '\r', '\n' -> insertNewline();
                 case 0x7F, 0x08 -> deleteBackward();
-                case 0x1B -> handleEscapeSequence(); // Esc or Meta
+                case 0x1B -> handleEscapeSequence();
                 default -> {
                     if (c >= 0x20) {
                         insertString(Character.toString((char) c));
@@ -696,29 +823,23 @@ public class inzm {
 
         void handleEscapeSequence() {
             try {
-                if (System.in.available() == 0) {
-                    // 単独の Esc キー
-                    return;
-                }
+                if (System.in.available() == 0) return;
                 int c2 = System.in.read();
                 if (c2 == ':') {
-                    // M-: (Eval Mocklisp expression!)
                     evalPrompt();
                 } else if (c2 == 'v') {
-                    // M-v (PageUp)
                     moveCursor(0, -(getTerminalRows() - 1));
                 } else if (c2 == '[') {
-                    // 矢印キーなど
                     int c3 = System.in.read();
                     switch (c3) {
-                        case 'A' -> moveCursor(0, -1); // Up
-                        case 'B' -> moveCursor(0, 1);  // Down
-                        case 'C' -> moveCursor(1, 0);  // Right
-                        case 'D' -> moveCursor(-1, 0); // Left
-                        case '5' -> moveCursor(0, -(getTerminalRows() - 1)); // PageUp
-                        case '6' -> moveCursor(0, getTerminalRows() - 1);  // PageDown
-                        case 'H' -> cursorX = 0; // Home
-                        case 'F' -> cursorX = currentLine().length(); // End
+                        case 'A' -> moveCursor(0, -1);
+                        case 'B' -> moveCursor(0, 1);
+                        case 'C' -> moveCursor(1, 0);
+                        case 'D' -> moveCursor(-1, 0);
+                        case '5' -> moveCursor(0, -(getTerminalRows() - 1));
+                        case '6' -> moveCursor(0, getTerminalRows() - 1);
+                        case 'H' -> cursorX = 0;
+                        case 'F' -> cursorX = currentLine().length();
                     }
                 }
             } catch (Exception ignored) {}
@@ -726,7 +847,7 @@ public class inzm {
     }
 
     // =========================================================================
-    // 4. ターミナル生モード制御ヘルパー
+    // 5. ターミナル生モード制御ヘルパー
     // =========================================================================
     static void setRawMode(boolean enable) {
         try {
@@ -760,7 +881,7 @@ public class inzm {
     }
 
     // =========================================================================
-    // 5. エントリポイント
+    // 6. エントリポイント
     // =========================================================================
     public static void main(String[] args) {
         String fname = (args.length > 0) ? args[0] : "untitled.txt";

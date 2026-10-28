@@ -6,6 +6,8 @@ target/
 __pycache__/
 *.pyc
 *.class
+.gradle/
+build/
 
 
 # Test memos
