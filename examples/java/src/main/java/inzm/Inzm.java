@@ -891,7 +891,18 @@ public class Inzm {
     // 4. メインループ & 入力処理 (エスケープシーケンス完全防壁)
     // =========================================================================
     void run() {
+        // どんな終了（Ctrl+Cや異常終了）でも確実に通常画面へ復元するシャットダウンフック
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                setTitle("");
+                System.out.print("\033[?1049l\033[?25h");
+                System.out.flush();
+                setRawMode(false);
+            } catch (Exception ignored) {}
+        }));
+
         setRawMode(true);
+        // 代替画面バッファ (Alternate Screen Buffer) に入り、画面を初期化
         System.out.print("\033[?1049h\033[2J\033[H");
         System.out.flush();
 
