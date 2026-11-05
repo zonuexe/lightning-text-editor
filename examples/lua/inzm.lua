@@ -65,7 +65,8 @@ end
 
 local function set_raw_mode(enable)
     if enable then
-        os.execute("stty -icanon -echo min 1 time 1 < /dev/tty 2>/dev/null || stty -icanon -echo min 1 time 1 2>/dev/null")
+        -- -ixon: Ctrl+S / Ctrl+Q のフロー制御(XON/XOFF)を無効化し、エディタにキーを渡す！
+        os.execute("stty -icanon -echo -ixon min 1 time 1 < /dev/tty 2>/dev/null || stty -icanon -echo -ixon min 1 time 1 2>/dev/null")
     else
         os.execute("stty sane < /dev/tty 2>/dev/null || stty sane 2>/dev/null")
     end
@@ -123,6 +124,7 @@ local Editor = {
     command_buffer = "",
     cut_buffer = nil,
     running = true,
+    quit_confirmed = false,
     commands = {}, -- Custom commands registered via micro.addCommand()
     hooks = { onSave = {}, onBufferOpen = {} }
 }
@@ -492,6 +494,9 @@ function Editor:run()
         if self.status_message ~= "" and not self.command_mode then
             self.status_message = ""
         end
+        if key ~= "\17" and key ~= "\3" then
+            self.quit_confirmed = false
+        end
 
         -- ==================== Command Mode (`Ctrl+E`) ====================
         if self.command_mode then
@@ -517,15 +522,11 @@ function Editor:run()
 
         -- ==================== Normal Edit Mode ====================
         else
-            -- Ctrl+Q (\17): Exit
-            if key == "\17" then
-                if self.is_modified then
+            -- Ctrl+Q (\17) or Ctrl+C (\3): Exit
+            if key == "\17" or key == "\3" then
+                if self.is_modified and not self.quit_confirmed then
+                    self.quit_confirmed = true
                     self.status_message = "Unsaved changes! Press Ctrl+Q again to force quit"
-                    self:render()
-                    local confirm = self:read_key()
-                    if confirm == "\17" then
-                        break
-                    end
                 else
                     break
                 end
@@ -533,6 +534,7 @@ function Editor:run()
             -- Ctrl+S (\19): Save
             elseif key == "\19" then
                 self:save_file()
+                self.quit_confirmed = false
 
             -- Ctrl+E (\5): Command Prompt (micro's signature command bar!)
             elseif key == "\5" then
