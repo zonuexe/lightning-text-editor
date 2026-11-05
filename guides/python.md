@@ -1,15 +1,21 @@
 # Python版 クイックリファレンス
 
-Pythonでは標準モジュールの `termios` と `tty` を使うことで、**サードパーティ製ライブラリのインストールなし（pip不要）**でターミナルエディタを実装できます。
+Pythonでは標準モジュールの `termios` と `tty` を使うことで、サードパーティ製ライブラリのインストールなしでターミナルエディタを実装できます。
+さらに現代の Python では、**PEP 723（Inline script metadata）** を使うことで、`uv run` や `pipx run` を用いて仮想環境の作成不要で外部ライブラリ（`editorconfig` 等）を即座に利用できます。
 
 ---
 
 ## ⚡️ クイックスタート
 
+### モダン手法: `uv run` + PEP 723 (推奨)
 ```bash
-mkdir my-python-editor && cd my-python-editor
-touch editor.py
-python3 editor.py
+# スクリプト先頭に依存関係を宣言するだけ（仮想環境の事前作成不要）
+uv run inzm.py sample.py
+```
+
+### 伝統手法: Python 3 標準
+```bash
+python3 inzm.py sample.py
 ```
 
 ---

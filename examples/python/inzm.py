@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# /// script
+# requires-python = ">=3.9"
+# dependencies = [
+#     "editorconfig",
+# ]
+# ///
 """
 inzm.py - Zonu's Own Editor (JOE) homage in Python
 Respecting the heritage of FSD Amoeba, where JOE was among the notable ported editors.
+Supports PEP 723 inline script metadata for isolated execution via `uv run` or `pipx run`.
 """
 
 import os
@@ -81,7 +88,7 @@ def probe_eaw() -> bool:
         return False
     return True
 
-# --- 1. 状態管理 ---
+# --- 1. 状態管理 & EditorConfig ---
 filename = sys.argv[1] if len(sys.argv) > 1 else "untitled.py"
 lines = [""]
 cursor_x = 0  # 文字インデックス
@@ -91,6 +98,15 @@ is_modified = false if False else False
 status_message = ""
 show_help_window = False
 ctrl_k_prefix = False
+
+# EditorConfig の自動解決
+ec_config = {}
+try:
+    from editorconfig import get_properties
+    abs_fn = os.path.abspath(filename)
+    ec_config = get_properties(abs_fn) or {}
+except Exception:
+    ec_config = {}
 
 # 起動直後のバナーメッセージ（画面下端左端に反転表示、何らかの操作で消滅）
 banner_message = "** Zonu's Own Editor v4.1 ** <utf-8> ** Copyright (C) 2026 **"
@@ -104,6 +120,14 @@ if os.path.exists(filename):
         lines = [""]
 
 # --- 2. ターミナル生モード & 後始末 ---
+if not sys.stdin.isatty():
+    # 非対話モード（テスト・構文チェック用）
+    if "--test" in sys.argv or "-c" in sys.argv:
+        print("inzm.py syntax & imports OK")
+        sys.exit(0)
+    sys.stderr.write("エラー: inzm.py は対話型ターミナル (TTY) で実行してください。\n")
+    sys.exit(1)
+
 fd = sys.stdin.fileno()
 old_settings = termios.tcgetattr(fd)
 
@@ -160,8 +184,14 @@ def render():
     cur_time = time.strftime("%H:%M")
     eaw_str = "EAW" if is_eaw else "Non-EAW"
 
+    # EditorConfig インジケータ
+    ec_ind = ec_config.get("indent_style", "space")
+    ec_size = ec_config.get("indent_size", "4")
+    ec_eol = ec_config.get("end_of_line", "lf")
+    ec_label = f" [EC:{ec_size}sp,{ec_eol}]" if ec_ind == "space" else f" [EC:tab,{ec_eol}]"
+
     prefix_str = " \x1b[1;33m^K_\x1b[0m\x1b[7m" if ctrl_k_prefix else ""
-    left_part = f" {mod_mark}{base_name}  ({eaw_str}){prefix_str}"
+    left_part = f" {mod_mark}{base_name}  ({eaw_str}){ec_label}{prefix_str}"
     mid_part = f"Row {cursor_y + 1}   Col {cursor_x + 1}   {cur_time} "
     right_part = status_message if status_message else "Ctrl+K H for help "
 
@@ -236,15 +266,29 @@ def read_key():
         return "\x1b" + ch2
     return ch
 
-# --- 5. 保存と終了 ---
+# --- 5. 保存と終了 (EditorConfig ルール適用) ---
 def save_file():
-    global is_modified, status_message
+    global is_modified, status_message, lines
     try:
-        content = "\n".join(lines) + "\n"
-        with open(filename, "w", encoding="utf-8") as f:
+        lines_to_save = list(lines)
+
+        # 1. trim_trailing_whitespace
+        if ec_config.get("trim_trailing_whitespace") == "true":
+            lines_to_save = [l.rstrip(" \t") for l in lines_to_save]
+            lines = list(lines_to_save)
+
+        # 2. end_of_line
+        eol = "\r\n" if ec_config.get("end_of_line") == "crlf" else "\n"
+        content = eol.join(lines_to_save)
+
+        # 3. insert_final_newline
+        if ec_config.get("insert_final_newline") != "false":
+            content += eol
+
+        with open(filename, "w", encoding=ec_config.get("charset", "utf-8")) as f:
             f.write(content)
         is_modified = False
-        status_message = f"File {filename} saved"
+        status_message = f"File {filename} saved [EC applied]"
     except Exception as e:
         status_message = f"Error: {e}"
 
@@ -388,6 +432,20 @@ try:
                 cursor_y -= 1
                 cursor_x = prev_len
                 is_modified = True
+
+        # Tab キー (EditorConfig indent_style / indent_size 準拠)
+        elif key == "\t":
+            if ec_config.get("indent_style") == "tab":
+                indent_str = "\t"
+            else:
+                try:
+                    size = int(ec_config.get("indent_size", "4"))
+                except ValueError:
+                    size = 4
+                indent_str = " " * size
+            lines[cursor_y] = current_line[:cursor_x] + indent_str + current_line[cursor_x:]
+            cursor_x += len(indent_str)
+            is_modified = True
 
         # 通常の文字入力 (全角・半角・UTF-8)
         elif not key.startswith("\x1b") and key >= " ":

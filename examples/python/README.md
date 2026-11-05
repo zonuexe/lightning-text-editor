@@ -25,16 +25,25 @@ Unixの分散OS「Amoeba」（後年のオープンソース版 FSD Amoeba）に
    - 起動時に `\x1b[6n` で端末の曖昧文字描画幅を測定し、日本語や記号のカーソルズレを完全防止。
    - 代替画面バッファにより、終了時にシェル履歴を一切汚しません。
 
+5. **PEP 723 インラインスクリプトメタデータ & EditorConfig 統合**:
+   - `uv run` / `pipx run` によるゼロ設定・仮想環境自動構築での即時実行をサポート。
+   - 公式 `editorconfig` パッケージにより、`.editorconfig` のインデント・行末空白削除・改行コードを自動適用。
+
 ---
 
 ## 🚀 起動方法
 
+### 推奨: `uv run`（PEP 723 インラインメタデータによる即時実行）
 ```bash
 cd examples/python
-./inzm.py sample.py
+uv run inzm.py sample.py
 ```
-または
+（`pip install` 不要！`editorconfig` 依存関係が隔離環境で自動解決され、1秒で起動します）
+
+### または直接実行（標準 Python 3）
 ```bash
+./inzm.py sample.py
+# または
 python3 inzm.py sample.py
 ```
 
