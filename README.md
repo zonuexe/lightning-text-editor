@@ -132,7 +132,8 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── bash/               # inzm.sh (Bash版: ed/ex風ラインエディタ, sed/awk/Readline活用)
 │   ├── python/             # inzm.py (Python版: JOE/ZOE風, WordStarキーバインド, FSD Amoebaリスペクト)
 │   ├── rust/               # inzm (Rust版: MinEd風, Unicodeファーストクラス, 書記素クラスタ完全対応)
-│   └── java/               # inzm (Java版: Gosling Emacs & Mocklisp, RSyntaxTextAreaハイライト)
+│   ├── java/               # inzm (Java版: Gosling Emacs & Mocklisp, RSyntaxTextAreaハイライト)
+│   └── lua/                # inzm.lua (Lua版: micro風モダンPC操作 & コマンドバー, フルLua実装)
 ├── prompts/                # AI進行用プロンプト・ファシリテーション定義
 └── skills/                 # pi / Claude Code / エージェント用スキル定義
 ```

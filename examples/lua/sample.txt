@@ -1,0 +1,19 @@
+Welcome to inzm (Micro homage in full Lua)!
+
+Micro is originally written in Go with Lua plugin support,
+but this editor is implemented in 100% pure, lightweight Lua!
+
+Keybindings (Modern PC & Micro style):
+- Ctrl+S : Save file
+- Ctrl+Q : Quit editor (safe quit warning)
+- Ctrl+E : Command Bar prompt (>)
+  Try commands:
+    > help
+    > upper    (custom command from init.lua)
+    > count    (custom command from init.lua)
+    > run ls -la
+    > eval 1 + 2 * 3
+- Ctrl+D : Duplicate current line
+- Ctrl+K : Cut current line
+- Ctrl+U : Paste cut line
+- Arrow keys, Home, End, PageUp, PageDown
