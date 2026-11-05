@@ -125,6 +125,7 @@ local Editor = {
     cut_buffer = nil,
     running = true,
     quit_confirmed = false,
+    mouse_enabled = true, -- micro風 マウスサポート (クリック移動 & ホイールスクロール)
     commands = {}, -- Custom commands registered via micro.addCommand()
     hooks = { onSave = {}, onBufferOpen = {} }
 }
@@ -344,6 +345,23 @@ function Editor:execute_command(input)
         io.flush()
         io.read(1)
         self.status_message = "Command finished: " .. sh_cmd
+    elseif op == "set" then
+        local key_opt, val = parts[2], parts[3]
+        if key_opt == "mouse" then
+            if val == "off" or val == "false" then
+                self.mouse_enabled = false
+                io.write("\27[?1000l\27[?1006l")
+                io.flush()
+                self.status_message = "Mouse disabled"
+            else
+                self.mouse_enabled = true
+                io.write("\27[?1000h\27[?1006h")
+                io.flush()
+                self.status_message = "Mouse enabled"
+            end
+        else
+            self.status_message = "Unknown option: " .. tostring(key_opt)
+        end
     elseif op == "eval" then
         local code = cmd:sub(6)
         local chunk, err = load("return " .. code)
@@ -480,7 +498,8 @@ end
 -- =============================================================================
 function Editor:run()
     set_raw_mode(true)
-    io.write("\27[?1049h\27[2J\27[H")
+    -- 代替画面バッファ & SGRマウスモード有効化 (クリック & ホイール)
+    io.write("\27[?1049h\27[2J\27[H\27[?1000h\27[?1006h")
     io.flush()
 
     is_eaw = probe_eaw()
@@ -522,8 +541,47 @@ function Editor:run()
 
         -- ==================== Normal Edit Mode ====================
         else
+            -- ==================== SGR Mouse Events (`\27[<btn;col;rowM/m`) ====================
+            local m_btn, m_col, m_row, m_rel = key:match("^\27%[<(%d+);(%d+);(%d+)([Mm])")
+            if m_btn then
+                local btn = tonumber(m_btn)
+                local col = tonumber(m_col)
+                local row = tonumber(m_row)
+                local release = (m_rel == "m")
+
+                if not release and self.mouse_enabled then
+                    local _, win_rows = get_window_size()
+                    local screen_rows = math.max(1, win_rows - 2)
+
+                    -- 1. 左クリック: クリック位置へカーソルジャンプ！
+                    if btn == 0 then
+                        if row >= 1 and row <= screen_rows then
+                            local target_y = self.row_offset + (row - 1)
+                            if target_y < #self.lines then
+                                self.cursor_y = target_y
+                                local text_col = math.max(0, col - 6) -- 行番号幅(4)+スペース(1)+1-indexed
+                                local chars = self:chars_at(self.cursor_y)
+                                local cur_w = 0
+                                local target_x = 0
+                                for idx, ch in ipairs(chars) do
+                                    local cw = str_width(ch)
+                                    if cur_w + cw > text_col then break end
+                                    cur_w = cur_w + cw
+                                    target_x = idx
+                                end
+                                self.cursor_x = target_x
+                            end
+                        end
+                    -- 2. マウスホイール: 上下スクロール！
+                    elseif btn == 64 then
+                        self:move_cursor(0, -3) -- スクロールアップ
+                    elseif btn == 65 then
+                        self:move_cursor(0, 3)  -- スクロールダウン
+                    end
+                end
+
             -- Ctrl+Q (\17) or Ctrl+C (\3): Exit
-            if key == "\17" or key == "\3" then
+            elseif key == "\17" or key == "\3" then
                 if self.is_modified and not self.quit_confirmed then
                     self.quit_confirmed = true
                     self.status_message = "Unsaved changes! Press Ctrl+Q again to force quit"
@@ -606,7 +664,8 @@ function Editor:run()
 
     -- Cleanup
     set_title("")
-    io.write("\27[?1049l\27[?25h")
+    -- マウスモード無効化 & 通常画面復帰
+    io.write("\27[?1000l\27[?1006l\27[?1049l\27[?25h")
     io.flush()
     set_raw_mode(false)
 end
