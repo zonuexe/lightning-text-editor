@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/editorconfig/editorconfig-core-go/v2"
 	"golang.org/x/term"
 )
 
@@ -126,12 +127,13 @@ func (m Mode) String() string {
 
 // --- 2. バッファ構造体 (マルチバッファ用) ---
 type Buffer struct {
-	Filename   string
-	Lines      []string
-	CursorX    int // rune index
-	CursorY    int // line index
-	RowOffset  int
-	IsModified bool
+	Filename     string
+	Lines        []string
+	CursorX      int // rune index
+	CursorY      int // line index
+	RowOffset    int
+	IsModified   bool
+	EditorConfig *editorconfig.Definition
 }
 
 func NewBuffer(filename string) *Buffer {
@@ -142,8 +144,16 @@ func NewBuffer(filename string) *Buffer {
 		Filename: filename,
 		Lines:    []string{""},
 	}
+	buf.ResolveEditorConfig()
 	buf.Load()
 	return buf
+}
+
+func (b *Buffer) ResolveEditorConfig() {
+	def, err := editorconfig.GetDefinitionForFilename(b.Filename)
+	if err == nil {
+		b.EditorConfig = def
+	}
 }
 
 func (b *Buffer) Load() {
@@ -161,7 +171,29 @@ func (b *Buffer) Load() {
 }
 
 func (b *Buffer) Save() error {
-	content := strings.Join(b.Lines, "\n") + "\n"
+	linesToSave := make([]string, len(b.Lines))
+	copy(linesToSave, b.Lines)
+
+	// EditorConfig: trim_trailing_whitespace
+	if b.EditorConfig != nil && b.EditorConfig.TrimTrailingWhitespace != nil && *b.EditorConfig.TrimTrailingWhitespace {
+		for i, l := range linesToSave {
+			linesToSave[i] = strings.TrimRight(l, " \t")
+		}
+	}
+
+	// EditorConfig: end_of_line
+	eol := "\n"
+	if b.EditorConfig != nil && b.EditorConfig.EndOfLine == "crlf" {
+		eol = "\r\n"
+	}
+
+	content := strings.Join(linesToSave, eol)
+
+	// EditorConfig: insert_final_newline
+	if b.EditorConfig == nil || b.EditorConfig.InsertFinalNewline == nil || *b.EditorConfig.InsertFinalNewline {
+		content += eol
+	}
+
 	err := os.WriteFile(b.Filename, []byte(content), 0644)
 	if err == nil {
 		b.IsModified = false
@@ -360,7 +392,19 @@ func (ed *Editor) Render() {
 	if !isEaw {
 		eawLabel = "[Non-EAW]"
 	}
-	leftStatus := fmt.Sprintf(" -- %s --  %s%s  %s", modeName, buf.Filename, modMark, eawLabel)
+	ecLabel := ""
+	if buf.EditorConfig != nil {
+		ind := buf.EditorConfig.IndentStyle
+		if ind == "" {
+			ind = "space"
+		}
+		size := buf.EditorConfig.IndentSize
+		if size == "" {
+			size = "4"
+		}
+		ecLabel = fmt.Sprintf("[EC:%s/%s]", ind, size)
+	}
+	leftStatus := fmt.Sprintf(" -- %s --  %s%s  %s %s", modeName, buf.Filename, modMark, eawLabel, ecLabel)
 	rightStatus := fmt.Sprintf("%d/%d Ln, Col %d ", buf.CursorY+1, len(buf.Lines), buf.CursorX+1)
 
 	leftW := stringWidth(leftStatus)
@@ -869,6 +913,24 @@ func (ed *Editor) HandleInput(input string) {
 		// Backspace (DEL)
 		if input == "\x7f" || input == "\x08" {
 			ed.DeleteBackward()
+			return
+		}
+
+		// Tab キー (EditorConfig indent_style / indent_size 準拠)
+		if input == "\t" {
+			if curBuf.EditorConfig != nil && curBuf.EditorConfig.IndentStyle == "tab" {
+				ed.InsertRune('\t')
+			} else {
+				spaces := 4
+				if curBuf.EditorConfig != nil && curBuf.EditorConfig.IndentSize != "" {
+					if n, err := strconv.Atoi(curBuf.EditorConfig.IndentSize); err == nil && n > 0 {
+						spaces = n
+					}
+				}
+				for i := 0; i < spaces; i++ {
+					ed.InsertRune(' ')
+				}
+			}
 			return
 		}
 

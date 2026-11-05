@@ -1,5 +1,6 @@
 import process from "node:process";
 import { createHighlighter, type Highlighter } from "shiki";
+import editorconfig from "editorconfig";
 
 // --- 0. 文字幅の判定ヘルパー（East Asian Width & DSRプローブ） ---
 let isEaw = true;
@@ -118,6 +119,14 @@ const currentLang = detectLanguage(filename);
 let highlighter: Highlighter | null = null;
 let highlightedLines: string[] = []; // キャッシュされた ANSI カラー付き行
 
+// EditorConfig 設定の解決
+let ecConfig: Record<string, any> = {};
+try {
+  ecConfig = await editorconfig.parse(filename);
+} catch {
+  ecConfig = {};
+}
+
 // ファイルの読み込み
 const file = Bun.file(filename);
 if (await file.exists()) {
@@ -224,9 +233,11 @@ function render() {
   const modMark = isModified ? " [*未保存]" : "";
   const posInfo = `Ln ${cursorY + 1}/${lines.length}, Col ${cursorX + 1}`;
   const eawTag = isEaw ? ":EAW" : ":Non-EAW";
+  const indentInfo = ecConfig.indent_style === "space" ? `${ecConfig.indent_size || 2}sp` : "tab";
+  const ecTag = ` [EC:${indentInfo},${ecConfig.end_of_line || "lf"}]`;
   const langTag = currentLang ? ` [${currentLang}:${THEME_NAME}${eawTag}]` : ` [${eawTag.slice(1)}]`;
   const msgPart = statusMessage ? ` | ${statusMessage}` : "";
-  const leftText = ` [inzm] ${filename}${modMark}${langTag} | ${posInfo}${msgPart}`;
+  const leftText = ` [inzm] ${filename}${modMark}${langTag}${ecTag} | ${posInfo}${msgPart}`;
   const rightText = `Ctrl+R: 実行 | Ctrl+S: 保存 | Ctrl+Q: 終了 `;
 
   const maxBarWidth = cols - 1;
@@ -417,13 +428,26 @@ process.stdin.on("data", async (data: Buffer) => {
     return;
   }
 
-  // Ctrl+S (\u0013): ファイル保存
+  // Ctrl+S (\u0013): ファイル保存 (EditorConfig ルール適用)
   if (key === "\u0013") {
     try {
-      const contentToSave = lines.join("\n") + "\n";
+      // 1. trim_trailing_whitespace
+      if (ecConfig.trim_trailing_whitespace) {
+        lines = lines.map((l) => l.replace(/[ \t]+$/, ""));
+      }
+
+      // 2. end_of_line
+      const eol = ecConfig.end_of_line === "crlf" ? "\r\n" : "\n";
+      let contentToSave = lines.join(eol);
+
+      // 3. insert_final_newline
+      if (ecConfig.insert_final_newline !== false) {
+        contentToSave += eol;
+      }
+
       await Bun.write(filename, contentToSave);
       isModified = false;
-      statusMessage = "✅ 保存完了！";
+      statusMessage = "✅ 保存完了 (EditorConfig適用)";
     } catch (e) {
       statusMessage = `❌ 保存失敗: ${e}`;
     }
@@ -464,7 +488,19 @@ process.stdin.on("data", async (data: Buffer) => {
       cursorX = Array.from(lines[cursorY]).length;
     }
   }
-  // Page Up（Fn+↑、物理PageUp、Alt+V 等）
+  // Tab キー（EditorConfig の indent_style & indent_size に準拠）
+  else if (key === "\t") {
+    const indentStr =
+      ecConfig.indent_style === "tab"
+        ? "\t"
+        : " ".repeat(ecConfig.indent_size || 2);
+    const inputChars = Array.from(indentStr);
+    currentChars.splice(cursorX, 0, ...inputChars);
+    lines[cursorY] = currentChars.join("");
+    cursorX += inputChars.length;
+    isModified = true;
+    contentChanged = true;
+  }
   else if (
     key === "\x1b[5~" ||
     key === "\x1b[5;2~" ||

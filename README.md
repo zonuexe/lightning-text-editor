@@ -114,7 +114,8 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── ansi-escapes.md     # よく使うANSIエスケープシーケンス一覧
 │   ├── architecture.md     # 40分エディタの基本アーキテクチャ
 │   ├── unicode-and-width.md # 文字幅とGrapheme Clusterの深淵（発展トピック）
-│   └── extension-ideas.md  # 40分完了後の拡張アイデア集（デザートメニュー）
+│   ├── extension-ideas.md  # 40分完了後の拡張アイデア集（デザートメニュー）
+│   └── editorconfig.md     # EditorConfig統合とアーキテクチャ設計
 ├── guides/                 # 言語別クイックリファレンス
 │   ├── ruby.md             # Ruby版ガイド (io/console)
 │   ├── python.md           # Python版ガイド (termios / tty)

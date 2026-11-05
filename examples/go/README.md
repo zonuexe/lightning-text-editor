@@ -16,7 +16,12 @@ Go言語で実装された、単一実行バイナリとして動作する **Vim
    - 各バッファ（ファイル）ごとに **カーソル座標、スクロール位置、未保存フラグ** を完全に独立して保持。
    - 画面最上部に **Vim風のタブバー**（`[1: sample1.txt]  2: sample2.txt*`）を常時表示。
    - コマンドライン操作（`:e`, `:bn`, `:bp`, `:bd`）だけでなく、**`Ctrl+N` / `Ctrl+P`** で爆速切替が可能！
-3. **Goならではの単一バイナリ**:
+3. **EditorConfig 完全準拠 (公式 `editorconfig-core-go` 統合)**:
+   - 開いたファイルごとに親ディレクトリを遡って `.editorconfig` を自動解決。
+   - `b.Save()` 時に `trim_trailing_whitespace`、`insert_final_newline`、`end_of_line` を適用。
+   - インサートモードでの Tab キー押下時に `indent_style`（tab / space）と `indent_size` を自動反映。
+   - ステータスバーに `[EC:tab/4]` などと表示。
+4. **Goならではの単一バイナリ**:
    - `go build` でどこでも動くポータブルな単一バイナリが生成可能。
 
 ---
