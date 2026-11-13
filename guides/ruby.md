@@ -71,7 +71,7 @@ Ruby標準の `File` クラスで1行で完結します。
 lines = File.exist?("sample.txt") ? File.readlines("sample.txt", chomp: true) : [""]
 
 # 書き込み（保存）
-File.write("sample.txt", lines.join("\n"))
+File.write("sample.txt", lines.join("\n") + "\n")
 ```
 
 ---
@@ -79,3 +79,14 @@ File.write("sample.txt", lines.join("\n"))
 ## 💡 Rubyならではの書きやすさポイント
 - `io.getch` は1文字ずつ同期的にブロックして待つため、イベントループを単純な `loop { ... }` で書くことができます。
 - 文字列操作（`String#insert` や `String#slice!`、配列操作）が直感的で、バッファ操作ロジックを短く書けます。
+
+---
+
+## ⚠️ 実装時のよくある落とし穴 (Common Pitfalls)
+
+1. **`$stdin.raw do |io|` のスコープ外に `io` を持ち出さない**:
+   - 生モードの有効範囲はブロックの内部だけです。ブロック外で `io.getch` を呼ぼうとするとエラーや通常モード化の原因になります。
+2. **文字の挿入・削除は `String#chars` を意識する**:
+   - `String#[]` のバイトインデックス操作を避け、文字単位の配列や `insert` / `slice!` で安全に操作しましょう。
+3. **改行の出力は `print "\r\n"` を徹底する**:
+   - `puts` は端末生モード下では `\r` を伴わない場合があるため、明示的に `print "...\r\n"` を使用します。

@@ -103,5 +103,16 @@ if err == nil {
 }
 
 // 保存
-err = os.WriteFile("sample.txt", []byte(strings.Join(lines, "\n")), 0644)
+err = os.WriteFile("sample.txt", []byte(strings.Join(lines, "\n") + "\n"), 0644)
 ```
+
+---
+
+## ⚠️ 実装時のよくある落とし穴 (Common Pitfalls)
+
+1. **`os.Stdin.Read(buf)` は必ず `for` ループの内側で呼ぶ**:
+   - ループの外で1度だけ読んでしまうと、最初の入力バイトを永久に処理し続ける無限ループになります。
+2. **文字列スライスはバイト単位ではなく `[]rune` で扱う**:
+   - Go の `string` インデックスはバイト長です。日本語（3バイト）をバイト単位でスライスすると文字化けします。必ず `[]rune(line)` に変換して操作しましょう。
+3. **古い `os/terminal` ではなく `golang.org/x/term` を使う**:
+   - `os/terminal` は過去の非推奨パッケージです。現代の Go では準標準の `golang.org/x/term` を利用します。

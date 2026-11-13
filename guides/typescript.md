@@ -98,3 +98,14 @@ await fs.writeFile("sample.txt", lines.join("\n"));
 process.stdout.write(renderedString);
 ```
 ※ `console.log` は末尾に自動で改行を入れてしまうため、エディタ画面の描画には `process.stdout.write` を使用します。
+
+---
+
+## ⚠️ 実装時のよくある落とし穴 (Common Pitfalls)
+
+1. **キー入力文字列を `.trim()` してはいけない**:
+   - `key.toString().trim()` を呼ぶと、スペースキー（`" "`）が空文字になって消滅し、スペースが入力できなくなります。
+2. **`render()` の中で `setRawMode(false)` を呼んではいけない**:
+   - 生モードの解除は **エディタ終了時（`cleanup`）のみ** 行います。描画ごとに解除すると画面表示が乱れキー入力が途切れます。
+3. **改行は `\n` ではなく `\r\n` を使う**:
+   - 生モード下では `\n` は「1行下がるだけ」でカーソルが左端に戻りません。必ず `\r\n` を出力します。
