@@ -161,3 +161,12 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
    - 本リポジトリのプロンプト/スキルを読み込ませたAIに「テキストエディタを作りたい」と話しかけるだけで、AIがメンターとして40分の対話開発をリードします。
 2. **教材・カリキュラムとして使う場合**:
    - 各ステップのドキュメントとアーキテクチャ設計を参考に、ハンズオンイベントや勉強会の教材として利用できます。
+
+---
+
+## Copyright
+
+[lightning-text-editor](https://github.com/zonuexe/lightning-text-editor) © 2026 by [USAMI Kenta &lt;tadsan@zonu.me&gt;](https://github.com/zonuexe) is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+
+本リポジトリに含まれるドキュメント、教材、およびサンプルコードは、[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)（クリエイティブ・コモンズ 表示 - 継承 4.0 国際）ライセンスの下で公開されています。詳細は [LICENSE](LICENSE) をご覧ください。
+
