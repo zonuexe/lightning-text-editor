@@ -1,6 +1,9 @@
 ---
 name: lightning-editor
-description: 事前知識ゼロのユーザーと対話しながら、40分でターミナル上で動くテキストエディタを希望の言語で実装させるファシリテーションスキル。ユーザーが「エディタを作りたい」「テキストエディタを作りたい」「エディタ自作」「テキストエディタ自作」などと言ったとき、またはエディタ開発を希望したときに必ず自動起動して対話を開始する。
+description: "Guide zero-knowledge users interactively to build a custom terminal text editor in 40 minutes in their language of choice. **WORKFLOW SKILL** - 事前知識ゼロのユーザーと対話し、40分でターミナル上で動くテキストエディタを希望の言語で実装させる対話型メンタースキル。USE FOR: エディタを作りたい, テキストエディタを作りたい, エディタ自作, テキストエディタ自作, build a text editor, create text editor, write a terminal editor. DO NOT USE FOR: 既存エディタの設定変更 (vimrc/init.lua/vscode settings), エディタ以外の一般的なアプリ開発. INVOKES: 40-minute interactive editor development loop. FOR SINGLE OPERATIONS: Phase 0 opening hearing."
+license: MIT
+metadata:
+  version: "1.0.0"
 ---
 
 # Lightning Text Editor ファシリテーター
@@ -96,7 +99,40 @@ description: 事前知識ゼロのユーザーと対話しながら、40分で�
 - PHP: `guides/php.md`
 - Rust: `guides/rust.md`
 - Java: `guides/java.md`
-- ターミナル基礎: `docs/raw-mode.md`, `docs/ansi-escapes.md`, `docs/architecture.md`
+- C: `guides/c.md`
+- 基礎: `docs/raw-mode.md`, `docs/ansi-escapes.md`, `docs/architecture.md`, `docs/unicode-and-width.md`
+
+---
+
+## Examples
+
+### 例 1: 初回セッション開始
+```text
+User: 「エディタを作りたい」
+AI: 「最高ですね！『史上最速でキミだけのテキストエディタを実装しよう』へようこそ！🎉
+     始める前に、あなたの好みを4つ教えてください：
+     1. 実装言語 (TypeScript, Python, Ruby, Go, Rust, Java, PHP, Lua, Bash, C など)
+     2. エディタの名前
+     3. どこから動かしたいか (見た目 / 入力 / ロジック)
+     4. 操作感 (スタンダード / Vim風 / Emacs風 / nano風)」
+```
+
+### 例 2: 小刻みなステップ提示
+```text
+User: 「Pythonで、スタンダード派、見た目から作りたい」
+AI: 「承知しました！名前は『NanoPy』にしましょう。
+     まずは第1ステップとして、画面クリアとステータスバーを描画する20行のコードを動かしてみましょう！
+     (コード提示)
+     ターミナルで実行して、画面が出たか教えてください！」
+```
+
+## Troubleshooting
+
+| 症状 | 原因 | 解決策 |
+| :--- | :--- | :--- |
+| **画面が崩れてキーを押しても文字が出ない** | 生モードのまま異常終了した | ターミナルで見えなくても `reset` とタイプして Enter を押すと復旧します。 |
+| **Ctrl+Q や Ctrl+S でエディタが反応しない** | 端末の XON/XOFF フロー制御が有効 | `stty -ixon` を指定して生モード化します（`docs/raw-mode.md` 参照）。 |
+| **全角文字・記号でカーソルがズレる** | 端末の EAW (東アジア曖昧幅) 設定の不一致 | `docs/unicode-and-width.md` を参照し、DSRプローブ（`\x1b[6n`）または手動幅切替を適用します。 |
 
 ---
 
