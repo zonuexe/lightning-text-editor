@@ -121,3 +121,15 @@ interface EditorState {
 ローカルターミナル以外のターゲット（`xterm.js` + WASM によるブラウザアプリや WASI ランタイム）にも対応させたい場合は、**コアをブロッキングループにせず「入力文字列を受け取って ANSI 文字列を返すイベント駆動ステートマシン」として分離**します（詳細とブラウザ特有の IME / SKK / macOS ショートカット / マウススクロール対策は [`docs/browser-wasm-runtime.md`](./browser-wasm-runtime.md) を参照）。
 
 - **`render()` を純粋に保つコツ**: マウスホイール等で「カーソルは動かさず画面だけスクロール」したい場合、`render()` の先頭で無条件にスクロール追従（`ensure_cursor_visible()`）を呼ばず、キー入力やクリック時の更新処理側でのみ追従を呼ぶのがポイントです。
+
+---
+
+## 🧩 発展アーキテクチャの実装パターン
+
+基本のエディタが完成したあと、実用的なエディタ機能へ伸ばす際の代表的な構造パターンです（実装レシピの詳細は [`docs/extension-ideas.md`](./extension-ideas.md) を参照）。
+
+| 機能 | コア構造の拡張ポイント | 描画・入力での注意点 | 参照実装 |
+| :--- | :--- | :--- | :--- |
+| **マルチバッファ & タブ UI** | `Editor`（`buffers[]`, `activeBuf`）と `Buffer`（`lines`, `cursor`, `rowOffset`, `isModified`）の 2 層分離 | Row 1 にタブバーを置く場合、本文領域が Row 2 始まり（`textRows = rows - 3`）になり、クリック座標やカーソル Y 座標も +1 ずれる | [examples/go/](../examples/go/) |
+| **範囲選択** | `anchor`（開始点）＋ `cursor`（現在点）を保持し、常に正規化した `(start, end)` で操作 | 選択中に文字入力すると「選択削除 → 挿入」で置換。SGR `?1002h` でマウスドラッグも扱える | [examples/moonbit/](../examples/moonbit/), [examples/zig/](../examples/zig/) |
+| **Piece Table + マルチカーソル** | `Selection { anchor, head }[]` をオフセット昇順で持ち、後ろから編集を適用して 1 スナップショットで Undo/Redo | ハードウェアカーソルはプライマリ 1 箇所のみ、副カーソルは反転色（`\x1b[46;30m` 等）で描画 | [examples/zig/](../examples/zig/) |

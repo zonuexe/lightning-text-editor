@@ -169,3 +169,7 @@ AI: 「承知しました！名前は『NanoPy』にしましょう。
    - コメントやキーワード、文字列を正規表現で色付けしてIDE感を演出。
 5. **🔍 Git Diff ビューア**:
    - `Ctrl+D` で `git diff --color` を排他画面で実行して差分確認。
+6. **📑 マルチバッファ & タブ UI**:
+   - `Buffer` 構造体を配列化して複数ファイルを同時編集し、Row 1 タブバーと `Ctrl+N/P` で切り替え（`docs/extension-ideas.md` 3-3 / `examples/go/` 参照）。
+7. **🖍 範囲選択（Shift+矢印 / ドラッグ選択）**:
+   - `anchor` + `cursor` で範囲選択を実装し、選択置換・コピー/カット・SGR `?1002h` ドラッグに対応（`docs/extension-ideas.md` 2-5 / `examples/moonbit/`, `examples/zig/` 参照）。
