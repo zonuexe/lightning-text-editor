@@ -3,6 +3,15 @@ node_modules/
 .bun/
 examples/go/inzm
 target/
+_build/
+.mooncakes/
+.moonagent/
+examples/moonbit/web/dist/
+examples/moonbit/web/public/inzm.wasm
+.zig-cache/
+zig-out/
+examples/zig/web/dist/
+examples/zig/web/public/inzm.wasm
 __pycache__/
 *.pyc
 *.class
