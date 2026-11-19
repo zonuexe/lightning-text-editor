@@ -1,0 +1,17 @@
+# inzm.zig — Piece Table + Undo/Redo + Live Inspector
+
+Welcome to the Zig reference implementation!
+このエディタは行配列ではなく「Piece Table（ピーステーブル）」で文書を管理しています。
+
+注目ポイント:
+1. 下部に「Piece Table Inspector (F2 / Ctrl+G)」を常時表示！
+   - 文字を打ったり消したりすると [O:...] と [A:...] のピースがリアルタイムで分割・追加されます。
+2. 無制限 Undo / Redo (Ctrl+Z / Ctrl+Y, macOS ブラウザ版は Cmd+Z / Cmd+Shift+Z)
+   - Piece 列のスナップショットにより編集履歴を自在に行き来できます。
+3. インクリメンタル検索 (Ctrl+F / Cmd+F)
+   - 入力するたびにマッチ位置へジャンプし、画面内でハイライト表示します。
+4. マルチカーソル編集 (Ctrl+D / Cmd+D, Option+↑/↓, Option+クリック, Escで解除)
+   - item_1 / item_2 / item_3 のように並んだ単語を複数カーソルで同時編集＋一括 Undo できます！
+5. 日本語（全角文字・絵文字 🍣）とクリック移動・ホイールスクロール対応。
+
+まずは適当に文字を挿入して、下の [A:...] ピースが増える様子を見てみてください！

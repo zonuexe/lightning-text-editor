@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>inzm.zig — Zig Piece Table WASM Editor</title>
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <span class="badge">Zig wasm32-freestanding</span>
+        <strong>inzm.zig</strong>
+        <span id="filename-label" class="filename">sample.txt</span>
+      </div>
+      <div class="actions">
+        <button id="btn-inspector" class="btn" type="button">Inspector (F2)</button>
+        <label class="btn" for="file-input">Open File</label>
+        <input id="file-input" type="file" hidden />
+        <button id="btn-save" class="btn" type="button">Download</button>
+        <button id="btn-sample" class="btn" type="button">Reset Sample</button>
+        <button id="btn-restart" class="btn" type="button">Restart</button>
+      </div>
+    </header>
+    <div id="banner" class="banner hidden"></div>
+    <main id="terminal-container"></main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

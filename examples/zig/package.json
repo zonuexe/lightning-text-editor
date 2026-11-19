@@ -1,0 +1,20 @@
+{
+  "name": "inzm-zig-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "zig build wasm && mkdir -p web/public && cp zig-out/web/inzm.wasm web/public/inzm.wasm",
+    "dev": "bun run build:wasm && vite web",
+    "build": "bun run build:wasm && vite build web",
+    "preview": "vite preview web",
+    "test": "zig build test"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}
