@@ -145,6 +145,9 @@ with open(filename, "w", encoding="utf-8") as f:
    - スペースキー（`" "`）が消えて空白が入力できなくなります。
 3. **行内 Backspace のスライスミスに注意**:
    - カーソル直前の文字を消す正しいスライスは `line[:cx-1] + line[cx:]` です（`line[:cx] + line[cx:]` だと何も消えません）。
-4. **終了時の `atexit` 登録と `Esc` タイムアウトを忘れてはいけない**:
-   - 例外発生時に生モードのままだとターミナルが壊れます。必ず `termios.tcsetattr` で元に戻すクリーンアップ（と `SIGTERM` 対策）を登録してください。
-   - `\x1b` の後に無条件で読み続けると単独 `Esc` 押下でハングするため、アプリ側バッファが空のときだけ `select.select([fd], ..., 0.05)` で短タイムアウトを置きます（`sys.stdin.read(1)` は `TextIOWrapper` の内部バッファに先読みして `select` と噛み合わないため、`os.read(fd, 1024)` + `codecs.getincrementaldecoder("utf-8")` を使うのが鉄則です）。また `SIGWINCH`（ウィンドウサイズ変更）を扱う場合は、ハンドラでフラグだけ立ててメインループ側でサイズ再取得・再描画します。
+4. **終了時の `atexit` 登録と `Esc` タイムアウト、`select` + `TextIOWrapper` 禁止**:
+   - 例外発生時に生モードのままだとターミナルが壊れます。必ず `termios.tcsetattr` で元に戻すクリーンアップ（と `SIGTERM` 対策）を登録してください。また `tty.setraw(fd)` の直後に `cleanup()` を呼んで即座に Cooked Mode へ戻してしまわないよう注意してください。
+   - **アンチパターン（NG）**: `select.select([sys.stdin], ...)` と `sys.stdin.read(1)` の併用。`sys.stdin` は最初の `read(1)` で `\x1b[A` 全体をユーザー空間バッファへ先読みするため、直後の `select` が「入力なし」と誤判定して矢印キーが壊れます。必ず上記のように **`os.read(fd, 1024)` + アプリ側バッファ + `codecs.getincrementaldecoder("utf-8")`** を使います。
+   - `SIGWINCH`（ウィンドウサイズ変更）を扱う場合は、ハンドラでフラグだけ立ててメインループ側でサイズ再取得・再描画します。
+5. **行番号ガター幅とカーソル X 計算を一致させる**:
+   - 行描画で `f"{i+1:4d} "`（5列）を出力したなら、カーソル X 座標も固定 `+ 5`（＋1-indexed の `+ 1`）で揃えます。`len(str(cursor_y + 1))` を使うとカーソル表示位置が左へズレます。また毎フレーム `\x1b[2J` を呼ぶとチラつくため、`\x1b[H` + 各行 `\x1b[K` で上書き描画します。

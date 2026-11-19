@@ -20,6 +20,53 @@ moon test --target wasm-gc
 
 ---
 
+## 🧱 最小プロジェクト骨格 & MoonBit 文法クイックチェック
+
+MoonBit は Rust や TOML とは構文が異なります（`Cargo.toml` / `[package]` / `impl` / `&mut self` / `i32` / `#[test]` ではなく、MoonBit 独自の DSL と型を使います）：
+
+```moonbit
+// moon.mod （TOML ではなくフラットなキー = 値形式。moon new でも生成される）
+name = "you/my_editor"
+version = "0.1.0"
+preferred_target = "wasm"
+```
+
+```moonbit
+// moon.pkg （標準ライブラリ以外を使う場合のみ import を書く。空でも可）
+import {
+  "moonbitlang/core/encoding/utf8",
+}
+```
+
+```moonbit
+// src/editor.mbt
+pub struct Editor {
+  mut lines : Array[String]
+  mut cursor_x : Int
+  mut cursor_y : Int
+}
+
+pub fn Editor::new(content : String) -> Editor {
+  { lines: [content], cursor_x: 0, cursor_y: 0 }
+}
+
+pub fn Editor::insert_char(self : Editor, ch : Char) -> Unit {
+  self.lines[self.cursor_y] = self.lines[self.cursor_y] + ch.to_string()
+  self.cursor_x += 1
+}
+
+///|
+test "insert_char" {
+  let ed = Editor::new("a")
+  ed.insert_char('b')
+  assert_eq(ed.lines[0], "ab")
+}
+```
+
+- 文字列操作には `Array[Char]`（`for ch in s { ... }` で Unicode スカラー値列挙、`String::from_array(...)`）を使い、サロゲート／マルチバイト境界を壊さないようにします。
+
+---
+
 ## 🧩 ブラウザアプリ (`--target wasm-gc` + JS String Builtins)
 
 `moon.pkg` で `use-js-builtin-string: true` を有効にすると、MoonBit の `String` をそのまま JavaScript の文字列として受け渡しできます。

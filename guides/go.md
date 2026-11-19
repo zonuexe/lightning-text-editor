@@ -118,3 +118,5 @@ err = os.WriteFile("sample.txt", []byte(strings.Join(lines, "\n") + "\n"), 0644)
    - `os/terminal` は過去の非推奨パッケージです。現代の Go では準標準の `golang.org/x/term` を利用します。
 4. **3バイト固定バッファと `SIGWINCH` / `SIGTERM` に注意**:
    - 最小コードの `make([]byte, 3)` は `Shift+矢印`（`\x1b[1;2A`: 6バイト）や 4 バイト絵文字・貼り付け入力を取りこぼすため、実運用では大きめのバッファ＋シーケンス切り出しパーサにします。また `os/signal` で `syscall.SIGTERM` 時の `term.Restore` や `syscall.SIGWINCH` によるリサイズ検知を追加すると堅牢です。
+5. **まず縦切りの最小エディタを動かしてから拡張を重ねる**:
+   - マルチバッファ・マウス・範囲選択・検索を最初から一度に書こうとすると、空の `context.Done()` 待ちスタブやタイムアウトだけのテストに陥りがちです。まず 1 バッファの描画・Raw Mode・文字入力・保存を動かした上で、`HandleInput` 等をテスト可能な関数として切り出しながら拡張を積み上げてください。
