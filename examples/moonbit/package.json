@@ -1,0 +1,21 @@
+{
+  "name": "inzm-moonbit-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "PATH=\"$HOME/.moon/bin:$PATH\" moon build -d --target wasm-gc --release cmd/web && mkdir -p web/public && cp _build/wasm-gc/release/build/cmd/web/web.wasm web/public/inzm.wasm",
+    "build:wasi": "PATH=\"$HOME/.moon/bin:$PATH\" moon build -d --target wasm --release cmd/wasi",
+    "dev": "bun run build:wasm && vite web",
+    "build": "bun run build:wasm && vite build web",
+    "preview": "vite preview web",
+    "test": "PATH=\"$HOME/.moon/bin:$PATH\" moon test -d --target wasm && PATH=\"$HOME/.moon/bin:$PATH\" moon test -d --target wasm-gc"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

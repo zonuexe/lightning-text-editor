@@ -1,0 +1,116 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "zonuexe/inzm"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn char_width(Char, Bool) -> Int32
+
+pub fn chars_of(String) -> Array[Char]
+
+pub fn chars_to_string(ArrayView[Char]) -> String
+
+pub fn format_codepoint(Char) -> String
+
+pub fn string_width(String, Bool) -> Int32
+
+// Errors
+
+// Types and methods
+pub struct Editor {
+  mut lines : Array[String]
+  mut cursor_x : Int32
+  mut cursor_y : Int32
+  mut anchor : Pos?
+  mut row_offset : Int32
+  mut col_offset : Int32
+  mut cols : Int32
+  mut rows : Int32
+  mut filename : String
+  mut is_modified : Bool
+  mut status_message : String
+  mut quit_confirm : Bool
+  mut clipboard_line : String?
+  mut is_eaw : Bool
+  mut should_quit : Bool
+  mut save_requested : Bool
+  decoder : InputDecoder
+}
+pub fn Editor::content(Self) -> String
+pub fn Editor::delete_selection(Self) -> Bool
+pub fn Editor::enter_alt_screen() -> String
+pub fn Editor::feed_bytes(Self, BytesView) -> String
+pub fn Editor::feed_str(Self, String) -> String
+pub fn Editor::filename(Self) -> String
+pub fn Editor::handle_key(Self, KeyEvent) -> Unit
+pub fn Editor::leave_alt_screen() -> String
+pub fn Editor::load_file(Self, String, String) -> Unit
+pub fn Editor::mark_saved(Self) -> Unit
+pub fn Editor::new(cols~ : Int32, rows~ : Int32, filename~ : String, content~ : String) -> Self
+pub fn Editor::render(Self) -> String
+pub fn Editor::resize(Self, Int32, Int32) -> Unit
+pub fn Editor::selected_text(Self) -> String
+pub fn Editor::set_status(Self, String) -> Unit
+pub fn Editor::should_quit(Self) -> Bool
+pub fn Editor::take_save_request(Self) -> Bool
+
+pub struct InputDecoder {
+  mut utf8_pending : Array[Byte]
+  mut esc_pending : String
+}
+pub fn InputDecoder::decode_bytes(Self, BytesView) -> String
+pub fn InputDecoder::new() -> Self
+pub fn InputDecoder::parse_str(Self, String) -> Array[KeyEvent]
+
+#derive(Eq, @debug.Debug)
+pub enum KeyEvent {
+  Char(Char)
+  Enter
+  Backspace
+  Delete
+  Tab
+  Up
+  Down
+  Right
+  Left
+  Home
+  End
+  PageUp
+  PageDown
+  WordLeft
+  WordRight
+  DocStart
+  DocEnd
+  DeleteWordBack
+  DeleteWordForward
+  DeleteToLineStart
+  ShiftUp
+  ShiftDown
+  ShiftRight
+  ShiftLeft
+  ShiftHome
+  ShiftEnd
+  ShiftWordLeft
+  ShiftWordRight
+  ShiftDocStart
+  ShiftDocEnd
+  SelectAll
+  MouseClick(Int32, Int32)
+  MouseDrag(Int32, Int32)
+  MouseWheelUp
+  MouseWheelDown
+  Ctrl(Char)
+  Escape
+}
+
+#derive(Eq)
+pub struct Pos {
+  line : Int32
+  col : Int32
+}
+
+// Type aliases
+
+// Traits

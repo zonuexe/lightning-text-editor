@@ -1,0 +1,33 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "zonuexe/inzm/cmd/web"
+
+// Values
+pub fn delete_selection() -> String
+
+pub fn get_content() -> String
+
+pub fn get_filename() -> String
+
+pub fn get_selected_text() -> String
+
+pub fn init_editor(Int32, Int32, String, String) -> String
+
+pub fn load_file(String, String) -> String
+
+pub fn mark_saved() -> String
+
+pub fn on_data(String) -> String
+
+pub fn on_resize(Int32, Int32) -> String
+
+pub fn should_quit() -> Bool
+
+pub fn take_save_request() -> Bool
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

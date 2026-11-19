@@ -1,0 +1,14 @@
+# inzm.mbt — MoonBit WASM/WASI Editor Sample
+
+Hello from MoonBit!
+このエディタは同じ MoonBit コアコードから2つのターゲットにビルドできます:
+
+1. ブラウザアプリ (WasmGC + xterm.js)
+2. WASI Preview 1 CLI (wasmtime 等の WASI ランタイム)
+
+試してみよう:
+- 矢印キー / Home / End / PageUp / PageDown で移動
+- 日本語や絵文字 (🍣) の文字幅計算とカーソル追従
+- Ctrl+T で Ambiguous 文字幅 (※, ★, α) の EAW=1 / EAW=2 切替
+- Ctrl+D で行複製、Ctrl+K で行カット、Ctrl+U でペースト
+- Ctrl+S で保存、Ctrl+Q で終了

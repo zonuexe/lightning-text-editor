@@ -1,0 +1,25 @@
+import {
+  "zonuexe/inzm",
+}
+
+options(
+  "is-main": false,
+  link: {
+    "wasm-gc": {
+      "use-js-builtin-string": true,
+      "exports": [
+        "init_editor",
+        "on_data",
+        "on_resize",
+        "load_file",
+        "get_content",
+        "get_selected_text",
+        "delete_selection",
+        "get_filename",
+        "should_quit",
+        "take_save_request",
+        "mark_saved",
+      ],
+    },
+  },
+)

@@ -1,0 +1,25 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "zonuexe/inzm/cmd/wasi"
+
+// Values
+pub fn fd_read_chunk(Int32, FixedArray[Byte]) -> Int32
+
+pub fn fd_write_all(Int32, Bytes) -> Bool
+
+pub fn get_args() -> Array[String]
+
+pub fn get_env(String) -> String?
+
+pub fn read_file_text(String) -> String?
+
+pub fn write_file_text(String, String) -> Bool
+
+pub fn write_stdout(String) -> Unit
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits
