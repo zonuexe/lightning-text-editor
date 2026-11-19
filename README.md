@@ -11,10 +11,12 @@
 > **「エディタを作りたい」**
 
 AIがあなた専任のメンターとして起動し、以下を対話しながら40分で動くオリジナルエディタを一緒に作り上げます：
-1. **言語の選択**: TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, Bash, C など何でもOK！
-2. **エディタの名前**: あなたの好きなオリジナル名を命名
-3. **好みの操作感**: スタンダード派（矢印キー）、Vim風（hjkl/モーダル）、Emacs風、nano風
-4. **どこから動かすか**: 画面の見た目から？ キー入力の反応から？ ロジックから？
+1. **言語の選択**: TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Bash, C など何でもOK！
+2. **ターゲット環境**: ローカルのターミナル CLI、または **WASM 経由のブラウザアプリ（`xterm.js` 等）**
+   - ※ ブラウザランタイムを選んだ場合でも、`<input type="file">` やドラッグ＆ドロップ、File System Access API を使って**手元のローカルファイルを開いて編集・保存**できます。
+3. **エディタの名前**: あなたの好きなオリジナル名を命名
+4. **好みの操作感**: スタンダード派（矢印キー）、Vim風（hjkl/モーダル）、Emacs風、nano風
+5. **どこから動かすか**: 画面の見た目から？ キー入力の反応から？ ロジックから？
 
 準備は一切不要。環境構築や前提知識がなくても、AIが手取り足取りエスコートします。
 
@@ -113,9 +115,12 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 | **Java** | `jline3` または `System.console()` + ANSI | オブジェクト指向で設計しやすい。JLineで簡単にTUI化 |
 | **PHP** | `stty` 呼び出し + `fgetc(STDIN)` / `readline` | CLIスクリプトとして手軽に動く。Web開発者のCLI入門に |
 | **TypeScript (Bun / Node.js)** | `process.stdin.setRawMode(true)` / `Bun.write` | **Bun推奨**（tsconfig不要・`bun run editor.ts`だけで1秒起動。40分開発に最適）。Node.jsでも`tsx`で同様に動作可能 |
+| **MoonBit (WASM / WASI)** | イベント駆動コア + `xterm.js` (WasmGC) / `wasip1` | 同じコアコードからブラウザアプリ（約18KB）と WASI CLI バイナリの両方をビルド可能 |
+| **Zig** | `std.posix.termios` / `wasm32-freestanding` | 明示的 `Allocator` による Piece Table・無制限 Undo/Redo・約31KB のブラウザ WASM |
 | **C** | `<termios.h>` | ターミナルの低レイヤ制御を極めたい人向けの王道 |
 
 ※ 上記以外の言語（Elixir, Kotlin, Zig, Swift 等）でも、ターミナルの生モード切り替えと標準入出力さえあれば同様のパターンで実装可能です。
+※ **ブラウザ（WASM + `xterm.js`）ターゲット**で作りたい場合は、ビルドが速く単体 `.wasm` を出しやすい **MoonBit / Rust (`wasm-bindgen`) / Go (TinyGo) / Zig / AssemblyScript / C** などがおすすめです（詳細は [`docs/browser-wasm-runtime.md`](docs/browser-wasm-runtime.md) を参照）。
 
 ---
 
@@ -127,6 +132,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── raw-mode.md         # ターミナルのRaw Modeとは（stty / termiosの仕組み）
 │   ├── ansi-escapes.md     # よく使うANSIエスケープシーケンス一覧
 │   ├── architecture.md     # 40分エディタの基本アーキテクチャ
+│   ├── browser-wasm-runtime.md # ターミナル以外のターゲット：WASM経由ブラウザランタイム設計
 │   ├── unicode-and-width.md # 文字幅とGrapheme Clusterの深淵（発展トピック）
 │   ├── extension-ideas.md  # 40分完了後の拡張アイデア集（デザートメニュー）
 │   └── editorconfig.md     # EditorConfig統合とアーキテクチャ設計
@@ -138,6 +144,8 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── java.md             # Java版ガイド (JLine / termios)
 │   ├── php.md              # PHP版ガイド (stty / fgetc)
 │   ├── typescript.md       # TypeScriptガイド (Bun推奨 / Node.js + tsx)
+│   ├── moonbit.md          # MoonBit版ガイド (WasmGC + xterm.js / WASI Preview 1)
+│   ├── zig.md              # Zig版ガイド (termios / wasm32-freestanding)
 │   └── c.md                # C言語版ガイド (termios)
 ├── examples/               # 完成サンプル実装集
 │   ├── bun-ts/             # inzm (Bun + TypeScript版: Shikiハイライト & QuickRun)
@@ -148,7 +156,9 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── python/             # inzm.py (Python版: JOE/ZOE風, WordStarキーバインド, FSD Amoebaリスペクト)
 │   ├── rust/               # inzm (Rust版: MinEd風, Unicodeファーストクラス, 書記素クラスタ完全対応)
 │   ├── java/               # inzm (Java版: Gosling Emacs & Mocklisp, RSyntaxTextAreaハイライト)
-│   └── lua/                # inzm.lua (Lua版: micro風モダンPC操作 & コマンドバー, フルLua実装)
+│   ├── lua/                # inzm.lua (Lua版: micro風モダンPC操作 & コマンドバー, フルLua実装)
+│   ├── moonbit/            # inzm.mbt (MoonBit版: WasmGC + xterm.js ブラウザアプリ & WASI Preview 1 CLI)
+│   └── zig/                # inzm.zig (Zig版: Piece Table + 無制限Undo/Redo + Live Inspector + wasm32-freestanding)
 ├── prompts/                # AI進行用プロンプト・ファシリテーション定義
 └── skills/                 # pi / Claude Code / エージェント用スキル定義
 ```
