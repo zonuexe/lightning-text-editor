@@ -69,6 +69,8 @@ module Inzm
       @status_message = ""
       @is_eaw = true
       @running = false
+      @pending_bytes = +"".b
+      @needs_resize = false
 
       @global_keymap = Keymap.new
       @active_keymap = @global_keymap
@@ -90,9 +92,9 @@ module Inzm
       candidates.each do |path|
         if File.exist?(path)
           begin
-            instance_eval(File.read(path), path)
+            instance_eval(File.read(path, encoding: "UTF-8"), path)
             @status_message = "Loaded #{File.basename(path)}"
-          rescue => e
+          rescue ScriptError, StandardError => e
             @status_message = "init.rb error: #{e.message}"
           end
           break
@@ -150,7 +152,7 @@ module Inzm
 
     # --- 3. ファイル I/O ---
     def load_file
-      content = File.read(@filename)
+      content = File.read(@filename, encoding: "UTF-8").scrub
       normalized = content.sub(/\r?\n\z/, "")
       @lines = normalized.split("\n").map { |l| l.delete("\r") }
       @lines = [""] if @lines.empty?
@@ -214,10 +216,12 @@ module Inzm
       formatted = output_text.gsub(/\r?\n/, "\r\n")
       print formatted
       print "\r\n\r\n\e[7m [q], [RET], または [C-g] でエディタに戻ります \e[0m\r\n"
+      $stdout.flush
 
-      loop do
-        ch = $stdin.getch
-        break if ch == "q" || ch == "Q" || ch == "\r" || ch == "\n" || ch == "\e" || ch == "\C-g"
+      while @running
+        ch = read_key($stdin)
+        next if ch == :retry
+        break if ch.nil? || ch == "q" || ch == "Q" || ch == "\r" || ch == "\n" || ch == "\e" || ch == "\C-g"
       end
     end
 
@@ -228,14 +232,18 @@ module Inzm
     end
 
     def prompt_input(prompt_text)
-      input = ""
+      input = +""
       rows, cols = window_size
-      loop do
+      while @running
         prompt_line = " #{prompt_text}#{input} "
-        truncated = truncate_to_width(prompt_line, cols - 1)
+        truncated = truncate_to_width(prompt_line, [1, cols - 1].max)
         print "\e[#{rows};1H\e[7m#{truncated}\e[0m\e[K"
+        $stdout.flush
 
-        ch = $stdin.getch
+        ch = read_key($stdin)
+        next if ch == :retry
+        return nil if ch.nil?
+
         case ch
         when "\r", "\n"
           return input
@@ -244,31 +252,73 @@ module Inzm
           return nil
         when "\x7f", "\x08"
           input.chop!
+        when "\e[200~"
+          pasted = read_bracketed_paste($stdin).gsub("\r\n", "\n").gsub("\r", "\n")
+          first_line = pasted.split("\n", 2).first || ""
+          input << first_line.gsub(/[\x00-\x1f\x7f]/, "")
         else
-          input << ch if ch >= " "
+          input << ch if ch >= " " && !ch.start_with?("\e")
         end
       end
+      nil
     end
 
     # --- 5. 文字幅計算 (簡易EAW & DSRプローブ) ---
-    def probe_eaw(io)
-      print "\e[1;1H\e[2Kα\e[6n"
-      resp = String.new
-      start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      while Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time < 0.1
-        c = io.read_nonblock(1, exception: false)
-        if c && c != :wait_readable
-          resp << c
-          break if c == 'R'
+    def read_byte_timeout(io, timeout = nil)
+      unless @pending_bytes.empty?
+        b = @pending_bytes.byteslice(0, 1)
+        @pending_bytes = @pending_bytes.byteslice(1..-1) || +"".b
+        return b
+      end
+      if timeout
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+        loop do
+          rem = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          return nil if rem <= 0
+          begin
+            break if IO.select([io], nil, nil, rem)
+            return nil
+          rescue Errno::EINTR
+            return nil unless @running
+            next
+          end
         end
-        sleep 0.005
       end
-      print "\e[1;1H\e[2K"
-      if resp =~ /\[\d+;(\d+)R/
-        @is_eaw = ($1.to_i == 3)
-      else
-        @is_eaw = true
+      c = io.read_nonblock(1, exception: false)
+      return nil if c == :wait_readable || c.nil?
+      c.b
+    rescue IO::WaitReadable, Errno::EINTR
+      nil
+    end
+
+    def probe_eaw(io)
+      print "\e7\e[1;1H\e[2K\e[8mα\e[6n\e[0m"
+      $stdout.flush
+      resp = +"".b
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.1
+      loop do
+        rem = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        break if rem <= 0
+
+        c = read_byte_timeout(io, rem)
+        next unless c
+
+        resp << c
+        if resp =~ /\e\[(\d+);(\d+)R/
+          prefix = resp.byteslice(0, $~.begin(0)) || +"".b
+          suffix = resp.byteslice($~.end(0)..-1) || +"".b
+          rest = prefix + suffix
+          @pending_bytes << rest unless rest.empty?
+          print "\e[1;1H\e[2K\e8"
+          $stdout.flush
+          @is_eaw = ($2.to_i == 3)
+          return
+        end
       end
+      @pending_bytes << resp unless resp.empty?
+      print "\e[1;1H\e[2K\e8"
+      $stdout.flush
+      @is_eaw = true
     end
 
     def char_width(char)
@@ -299,20 +349,41 @@ module Inzm
       end
     end
 
+    def sanitize_and_measure(str, max_width = nil, tab_width = 4)
+      out = +""
+      col = 0
+      str.each_char do |c|
+        code = c.ord
+        if c == "\t"
+          w = tab_width - (col % tab_width)
+          disp = " " * w
+        elsif code < 0x20
+          w = 2
+          disp = "^#{(code + 64).chr}"
+        elsif code == 0x7f
+          w = 2
+          disp = "^?"
+        elsif code >= 0x80 && code < 0xa0
+          w = 1
+          disp = "?"
+        else
+          w = char_width(c)
+          disp = c
+        end
+        break if max_width && col + w > max_width
+
+        out << disp
+        col += w
+      end
+      [out, col]
+    end
+
     def string_width(str)
-      str.chars.sum { |c| char_width(c) }
+      sanitize_and_measure(str)[1]
     end
 
     def truncate_to_width(str, max_width)
-      curr_width = 0
-      res = String.new
-      str.chars.each do |c|
-        w = char_width(c)
-        break if curr_width + w > max_width
-        res << c
-        curr_width += w
-      end
-      res
+      sanitize_and_measure(str, max_width)[0]
     end
 
     # --- 6. 画面描画 & スクロール ---
@@ -338,15 +409,17 @@ module Inzm
       s_rows = screen_rows
 
       output = String.new
-      output << "\e[?25l"
+      output << "\e[?2026h\e[?25l"
 
       # 1. 本文描画
+      text_cols = [1, cols - LINE_NUM_WIDTH - 1].max
       (0...s_rows).each do |i|
         file_row = @row_offset + i
         output << "\e[#{i + 1};1H"
         if file_row < @lines.length
           line_num = (file_row + 1).to_s.rjust(3)
-          output << "\e[90m#{line_num} \e[0m#{@lines[file_row]}\e[K"
+          safe_line = truncate_to_width(@lines[file_row], text_cols)
+          output << "\e[90m#{line_num} \e[0m#{safe_line}\e[K"
         else
           output << "\e[90m  ~ \e[0m\e[K"
         end
@@ -378,12 +451,13 @@ module Inzm
       current_chars = @lines[@cursor_y].chars
       chars_before = current_chars[0...@cursor_x]&.join || ""
       visual_x = string_width(chars_before)
-      screen_x = visual_x + LINE_NUM_WIDTH + 1
+      screen_x = [visual_x + LINE_NUM_WIDTH + 1, cols].min
 
       output << "\e[#{screen_y};#{screen_x}H"
-      output << "\e[?25h"
+      output << "\e[?25h\e[?2026l"
 
       print output
+      $stdout.flush
     end
 
     # --- 7. カーソル移動 ---
@@ -494,88 +568,164 @@ module Inzm
         return
       end
 
-      # タイトル設定 & 代替画面バッファ (Alternate Screen Buffer) に入り、画面を初期化
-      set_title("inzm - #{@filename}")
-      print "\e[?1049h\e[2J\e[H"
-
       @running = true
 
-      trap("WINCH") { render if @running }
+      trap("WINCH") { @needs_resize = true }
+      trap("TERM") { @running = false }
+      trap("HUP") { @running = false }
 
       $stdin.raw do |io|
-        probe_eaw(io)
-        render
-        while @running
-          key = read_key(io)
-          break unless key
+        begin
+          # タイトル設定 & 代替画面バッファ & Bracketed Paste 有効化
+          set_title("inzm - #{@filename}")
+          print "\e[?1049h\e[?2004h\e[2J\e[H"
+          $stdout.flush
 
-          @status_message = "" unless @status_message.start_with?("=>", "Error", "Quit")
-
-          # キーマップ探索
-          action = @active_keymap[key]
-
-          if action.is_a?(Keymap)
-            # プレフィックスキー（例: C-x が押された）-> 次のキーを待つ
-            @prefix_keys << key_name(key)
-            @active_keymap = action
-          elsif action.respond_to?(:call)
-            # コマンド実行
-            @prefix_keys.clear
-            @active_keymap = @global_keymap
-            instance_eval(&action)
-          elsif @active_keymap != @global_keymap
-            # プレフィックスキーの後に未知のキーが押された
-            key_seq = (@prefix_keys + [key_name(key)]).join(" ")
-            @prefix_keys.clear
-            @active_keymap = @global_keymap
-            @status_message = "#{key_seq} is undefined"
-          else
-            # 通常入力
-            if key == "\r" || key == "\n"
-              insert_newline
-            elsif key == "\x7f" || key == "\x08"
-              delete_backward_char
-            elsif key >= " " && !key.start_with?("\e")
-              key.chars.each { |c| insert_char(c) }
+          probe_eaw(io)
+          render
+          while @running
+            if @needs_resize
+              @needs_resize = false
+              render
             end
-          end
+            key = read_key(io)
+            if @needs_resize
+              @needs_resize = false
+              render
+            end
+            next if key == :retry
+            break unless key
 
-          render if @running
+            @status_message = "" unless @status_message.start_with?("=>", "Error", "Quit")
+
+            if key == "\e[200~"
+              pasted = read_bracketed_paste(io).gsub("\r\n", "\n").gsub("\r", "\n")
+              paste_lines = pasted.split("\n", -1)
+              chars = @lines[@cursor_y].chars
+              before = chars[0...@cursor_x]&.join || ""
+              after = chars[@cursor_x..]&.join || ""
+              if paste_lines.length == 1
+                @lines[@cursor_y] = before + paste_lines[0] + after
+                @cursor_x += paste_lines[0].chars.length
+              else
+                @lines[@cursor_y] = before + paste_lines[0]
+                mid = paste_lines[1...-1]
+                last = paste_lines[-1]
+                @lines.insert(@cursor_y + 1, *mid, last + after)
+                @cursor_y += paste_lines.length - 1
+                @cursor_x = last.chars.length
+              end
+              @is_modified = true
+              render
+              next
+            end
+
+            # キーマップ探索
+            action = @active_keymap[key]
+
+            if action.is_a?(Keymap)
+              # プレフィックスキー（例: C-x が押された）-> 次のキーを待つ
+              @prefix_keys << key_name(key)
+              @active_keymap = action
+            elsif action.respond_to?(:call)
+              # コマンド実行
+              @prefix_keys.clear
+              @active_keymap = @global_keymap
+              instance_eval(&action)
+            elsif @active_keymap != @global_keymap
+              # プレフィックスキーの後に未知のキーが押された
+              key_seq = (@prefix_keys + [key_name(key)]).join(" ")
+              @prefix_keys.clear
+              @active_keymap = @global_keymap
+              @status_message = "#{key_seq} is undefined"
+            else
+              # 通常入力
+              if key == "\r" || key == "\n"
+                insert_newline
+              elsif key == "\x7f" || key == "\x08"
+                delete_backward_char
+              elsif key >= " " && !key.start_with?("\e")
+                key.chars.each { |c| insert_char(c) }
+              end
+            end
+
+            render if @running
+          end
+        ensure
+          cleanup_terminal
         end
       end
-    ensure
-      cleanup_terminal
+    end
+
+    def read_utf8_tail(io, lead_byte)
+      b = lead_byte.ord
+      extra = if b >= 0xf0 then 3
+              elsif b >= 0xe0 then 2
+              elsif b >= 0xc0 then 1
+              else 0
+              end
+      tail = +"".b
+      extra.times do
+        nb = read_byte_timeout(io, 0.05)
+        break unless nb
+        tail << nb
+      end
+      tail
     end
 
     def read_key(io)
-      char = io.getch
-      return nil if char.nil?
+      if @pending_bytes.empty?
+        ready = IO.select([io], nil, nil, 0.2)
+        return :retry unless ready
+      end
+      b0 = read_byte_timeout(io)
+      return nil if b0.nil?
 
-      if char == "\e"
-        # Esc または Meta キー / 矢印シーケンス
-        seq = String.new("\e")
-        c1 = io.read_nonblock(1, exception: false)
-        if c1 == :wait_readable || c1.nil?
-          # 単独の Esc キー
-          return "\e"
-        end
+      if b0 == "\e".b
+        # Esc または Meta キー / 矢印シーケンス（50ms待機）
+        seq = +"".b << b0
+        c1 = read_byte_timeout(io, 0.05)
+        return "\e" if c1.nil?
 
         seq << c1
-        if c1 == "["
-          # CSI シーケンス（矢印キーなど）
-          while (c = io.read_nonblock(1, exception: false))
-            break if c == :wait_readable || c.nil?
+        if c1 == "[".b
+          # CSI シーケンス（終端バイト 0x40..0x7E まで読み切る）
+          while (c = read_byte_timeout(io, 0.05))
             seq << c
-            break if seq.length >= 3 && (c =~ /[A-Za-z~]/)
+            break if c.ord >= 0x40 && c.ord <= 0x7e
           end
-          seq
+          seq.force_encoding(Encoding::UTF_8).scrub
+        elsif c1 == "O".b
+          c2 = read_byte_timeout(io, 0.05)
+          return "\eO" unless c2
+
+          map = { "A".b => "\e[A", "B".b => "\e[B", "C".b => "\e[C", "D".b => "\e[D", "H".b => "\e[H", "F".b => "\e[F" }
+          map[c2] || ("\eO".b + c2).force_encoding(Encoding::UTF_8).scrub
         else
           # Meta キー（例: M-:, M-v, M-x など）
-          seq
+          seq << read_utf8_tail(io, c1) if c1.ord >= 0xc0
+          seq.force_encoding(Encoding::UTF_8).scrub
         end
       else
-        char
+        buf = +"".b << b0
+        buf << read_utf8_tail(io, b0) if b0.ord >= 0xc0
+        buf.force_encoding(Encoding::UTF_8).scrub
       end
+    rescue Errno::EINTR
+      :retry
+    end
+
+    def read_bracketed_paste(io)
+      buf = +"".b
+      end_marker = "\e[201~".b
+      while (c = read_byte_timeout(io, 0.2))
+        buf << c
+        if buf.end_with?(end_marker)
+          buf = buf.byteslice(0, buf.bytesize - end_marker.bytesize) || +"".b
+          break
+        end
+      end
+      buf.force_encoding(Encoding::UTF_8).scrub
     end
 
     def key_name(k)
@@ -594,7 +744,8 @@ module Inzm
 
     def cleanup_terminal
       set_title("")
-      print "\e[?1049l\e[?25h"
+      print "\e[?2004l\e[?1049l\e[?25h\e[0m"
+      $stdout.flush
     end
   end
 end

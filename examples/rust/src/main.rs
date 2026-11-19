@@ -1,24 +1,78 @@
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyModifiers},
     execute,
+    style::{Attribute, ResetColor, SetAttribute},
     terminal::{
-        disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-        Clear, ClearType, SetTitle,
+        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen, SetTitle,
     },
 };
 use std::env;
 use std::fs;
-use std::io::{stdout, Write};
+use std::io::{stdin, stdout, IsTerminal, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+#[cfg(unix)]
+static TERM_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn handle_term_signal(_sig: i32) {
+    TERM_REQUESTED.store(true, Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+fn install_term_handlers() {
+    const SIGHUP: i32 = 1;
+    const SIGTERM: i32 = 15;
+    const SIG_IGN: usize = 1;
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+    }
+    unsafe {
+        let prev_hup = signal(SIGHUP, handle_term_signal as *const () as usize);
+        if prev_hup == SIG_IGN {
+            signal(SIGHUP, SIG_IGN);
+        }
+        let _ = signal(SIGTERM, handle_term_signal as *const () as usize);
+    }
+}
+
+#[cfg(not(unix))]
+fn install_term_handlers() {}
+
+fn is_term_requested() -> bool {
+    #[cfg(unix)]
+    {
+        TERM_REQUESTED.load(Ordering::Relaxed)
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+fn is_control_char(ch: char) -> bool {
+    let code = ch as u32;
+    code < 0x20 || code == 0x7F || (0x80..0xA0).contains(&code)
+}
 
 // --- 安全なターミナル復元用 RAII ガード ---
 struct CleanUp;
 
 impl Drop for CleanUp {
     fn drop(&mut self) {
-        let _ = execute!(stdout(), SetTitle(""), LeaveAlternateScreen, cursor::Show);
+        let _ = execute!(
+            stdout(),
+            SetTitle(""),
+            DisableBracketedPaste,
+            ResetColor,
+            LeaveAlternateScreen,
+            cursor::Show
+        );
         let _ = disable_raw_mode();
     }
 }
@@ -66,11 +120,90 @@ impl Editor {
     }
 
     fn grapheme_width(&self, g: &str) -> usize {
+        if g == "\t" {
+            return 4;
+        }
+        if g.chars().any(is_control_char) {
+            return g
+                .chars()
+                .map(|ch| {
+                    let code = ch as u32;
+                    if ch == '\t' {
+                        4
+                    } else if code < 0x20 || code == 0x7F {
+                        2
+                    } else if (0x80..0xA0).contains(&code) {
+                        1
+                    } else {
+                        let mut buf = [0u8; 4];
+                        let s = ch.encode_utf8(&mut buf);
+                        if self.is_eaw {
+                            UnicodeWidthStr::width_cjk(s)
+                        } else {
+                            UnicodeWidthStr::width(s)
+                        }
+                    }
+                })
+                .sum();
+        }
         if self.is_eaw {
             UnicodeWidthStr::width_cjk(g)
         } else {
             UnicodeWidthStr::width(g)
         }
+    }
+
+    fn sanitize_and_measure(&self, text: &str, max_cols: Option<usize>) -> (String, usize) {
+        const TAB_WIDTH: usize = 4;
+        let mut out = String::new();
+        let mut col = 0;
+        'outer: for g in text.graphemes(true) {
+            if g == "\t" {
+                let w = TAB_WIDTH - (col % TAB_WIDTH);
+                if let Some(limit) = max_cols {
+                    if col + w > limit {
+                        break;
+                    }
+                }
+                out.push_str(&" ".repeat(w));
+                col += w;
+            } else if g.chars().any(is_control_char) {
+                for ch in g.chars() {
+                    let code = ch as u32;
+                    let (disp, w) = if ch == '\t' {
+                        let tw = TAB_WIDTH - (col % TAB_WIDTH);
+                        (" ".repeat(tw), tw)
+                    } else if code < 0x20 {
+                        (format!("^{}", char::from_u32(code + 64).unwrap_or('?')), 2)
+                    } else if code == 0x7F {
+                        ("^?".to_string(), 2)
+                    } else if (0x80..0xA0).contains(&code) {
+                        ("?".to_string(), 1)
+                    } else {
+                        let mut buf = [0u8; 4];
+                        let s = ch.encode_utf8(&mut buf);
+                        (s.to_string(), self.grapheme_width(s))
+                    };
+                    if let Some(limit) = max_cols {
+                        if col + w > limit {
+                            break 'outer;
+                        }
+                    }
+                    out.push_str(&disp);
+                    col += w;
+                }
+            } else {
+                let w = self.grapheme_width(g);
+                if let Some(limit) = max_cols {
+                    if col + w > limit {
+                        break;
+                    }
+                }
+                out.push_str(g);
+                col += w;
+            }
+        }
+        (out, col)
     }
 
     // 書記素クラスタ単位での行内文字スライス
@@ -102,12 +235,16 @@ impl Editor {
             .collect();
         let codepoints_str = codepoints.join(" ");
 
-        let width_desc = if width == 2 {
-            "Wide (2 cells)"
+        let width_desc = if target_grapheme == "\t" {
+            format!("Tab ({} cells)", width)
+        } else if width == 2 {
+            "Wide (2 cells)".to_string()
         } else if width == 1 {
-            "Narrow (1 cell)"
+            "Narrow (1 cell)".to_string()
+        } else if width == 0 {
+            "Zero width (0 cell)".to_string()
         } else {
-            "Zero width (0 cell)"
+            format!("{} cells", width)
         };
 
         format!("'{}' [{}] ({})", target_grapheme, codepoints_str, width_desc)
@@ -115,21 +252,11 @@ impl Editor {
 
     // 表示上の幅で切り詰め
     fn truncate_str(&self, text: &str, max_w: usize) -> String {
-        let mut cur_w = 0;
-        let mut res = String::new();
-        for g in text.graphemes(true) {
-            let w = self.grapheme_width(g);
-            if cur_w + w > max_w {
-                break;
-            }
-            res.push_str(g);
-            cur_w += w;
-        }
-        res
+        self.sanitize_and_measure(text, Some(max_w)).0
     }
 
     fn str_width(&self, text: &str) -> usize {
-        text.graphemes(true).map(|g| self.grapheme_width(g)).sum()
+        self.sanitize_and_measure(text, None).1
     }
 
     fn scroll(&mut self, screen_rows: usize) {
@@ -154,10 +281,11 @@ impl Editor {
         self.scroll(screen_rows);
 
         let mut out = String::new();
-        out.push_str("\x1b[?25l"); // カーソル隠す
+        out.push_str("\x1b[?2026h\x1b[?25l"); // 同期描画開始 & カーソル隠す
 
         // 1. 本文テキストエリア
         const LINE_NUM_WIDTH: usize = 4;
+        let text_cols = cols.saturating_sub(LINE_NUM_WIDTH + 1).max(1);
         for i in 0..screen_rows {
             let file_row = self.row_offset + i;
             out.push_str(&format!("\x1b[{};1H", i + 1));
@@ -167,7 +295,7 @@ impl Editor {
                 out.push_str("\x1b[90m");
                 out.push_str(&line_num);
                 out.push_str("\x1b[0m");
-                out.push_str(&self.lines[file_row]);
+                out.push_str(&self.truncate_str(&self.lines[file_row], text_cols));
                 out.push_str("\x1b[K");
             } else {
                 out.push_str("\x1b[90m  ~ \x1b[0m\x1b[K");
@@ -203,14 +331,11 @@ impl Editor {
         // 3. カーソル位置の設定 (EAW設定に完全追従！)
         let screen_y = (self.cursor_y - self.row_offset) + 1;
         let graphemes = self.graphemes_at(self.cursor_y);
-        let visual_x: usize = graphemes
-            .iter()
-            .take(self.cursor_x)
-            .map(|g| self.grapheme_width(g))
-            .sum();
-        let screen_x = visual_x + LINE_NUM_WIDTH + 1;
+        let prefix: String = graphemes.iter().take(self.cursor_x).copied().collect();
+        let visual_x = self.str_width(&prefix);
+        let screen_x = (visual_x + LINE_NUM_WIDTH + 1).min(cols);
 
-        out.push_str(&format!("\x1b[{};{}H\x1b[?25h", screen_y, screen_x));
+        out.push_str(&format!("\x1b[{};{}H\x1b[?25h\x1b[?2026l", screen_y, screen_x));
 
         let mut stdout = stdout();
         stdout.write_all(out.as_bytes())?;
@@ -239,7 +364,7 @@ impl Editor {
 
         let mut hex_buf = String::new();
 
-        loop {
+        while !is_term_requested() {
             // 最下行にプロンプトを描画
             let prompt = format!(" Unicode Hex Input: U+{} ", hex_buf);
             let mut out = format!("\x1b[{};1H\x1b[7m{}\x1b[0m\x1b[K", rows, prompt);
@@ -248,6 +373,9 @@ impl Editor {
             stdout.write_all(out.as_bytes())?;
             stdout.flush()?;
 
+            if !event::poll(Duration::from_millis(100))? {
+                continue;
+            }
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Enter => {
@@ -277,6 +405,7 @@ impl Editor {
                 }
             }
         }
+        Ok(())
     }
 
     // --- 編集ロジック (書記素クラスタ完全対応) ---
@@ -338,110 +467,149 @@ impl Editor {
     }
 
     // --- メインループ ---
-    fn run(&mut self) -> Result<(), std::io::Error> {
+    fn run(&mut self, auto_probe_eaw: bool) -> Result<(), std::io::Error> {
+        install_term_handlers();
         enable_raw_mode()?;
         let _cleanup = CleanUp;
 
-        execute!(stdout(), EnterAlternateScreen, Clear(ClearType::All))?;
+        execute!(
+            stdout(),
+            EnterAlternateScreen,
+            EnableBracketedPaste,
+            Clear(ClearType::All)
+        )?;
+        if auto_probe_eaw {
+            self.is_eaw = probe_eaw();
+        }
         self.render()?;
 
-        while self.running {
-            if let Event::Key(key) = event::read()? {
-                if !self.status_message.is_empty() {
-                    self.status_message.clear();
-                }
-
-                match (key.modifiers, key.code) {
-                    // Ctrl+Q / Ctrl+C : 終了
-                    (KeyModifiers::CONTROL, KeyCode::Char('q'))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
-                        self.running = false;
-                    }
-                    // Ctrl+S : 保存
-                    (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
-                        self.save_file();
-                    }
-                    // Ctrl+U : MinEd名物 Unicode Hex 入力
-                    (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
-                        self.prompt_unicode_hex()?;
-                    }
-                    // F2 または Ctrl+T : EAWモード (Wide 2 / Narrow 1) のリアルタイムトグル
-                    (_, KeyCode::F(2))
-                    | (KeyModifiers::CONTROL, KeyCode::Char('t')) => {
-                        self.is_eaw = !self.is_eaw;
-                        self.status_message = format!(
-                            "EAW mode: {}",
-                            if self.is_eaw { "Wide (2 cells)" } else { "Narrow (1 cell)" }
-                        );
-                    }
-                    // 矢印キー移動
-                    (_, KeyCode::Up) => {
-                        if self.cursor_y > 0 {
-                            self.cursor_y -= 1;
-                            self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
-                        }
-                    }
-                    (_, KeyCode::Down) => {
-                        if self.cursor_y < self.lines.len() - 1 {
-                            self.cursor_y += 1;
-                            self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
-                        }
-                    }
-                    (_, KeyCode::Left) => {
-                        if self.cursor_x > 0 {
-                            self.cursor_x -= 1;
-                        } else if self.cursor_y > 0 {
-                            self.cursor_y -= 1;
-                            self.cursor_x = self.graphemes_at(self.cursor_y).len();
-                        }
-                    }
-                    (_, KeyCode::Right) => {
-                        let len = self.graphemes_at(self.cursor_y).len();
-                        if self.cursor_x < len {
-                            self.cursor_x += 1;
-                        } else if self.cursor_y < self.lines.len() - 1 {
-                            self.cursor_y += 1;
-                            self.cursor_x = 0;
-                        }
-                    }
-                    // Home / End
-                    (_, KeyCode::Home) => {
-                        self.cursor_x = 0;
-                    }
-                    (_, KeyCode::End) => {
-                        self.cursor_x = self.graphemes_at(self.cursor_y).len();
-                    }
-                    // PageUp / PageDown
-                    (_, KeyCode::PageUp) => {
-                        let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-                        let screen_rows = (rows as usize).saturating_sub(1);
-                        self.cursor_y = self.cursor_y.saturating_sub(screen_rows);
-                        self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
-                    }
-                    (_, KeyCode::PageDown) => {
-                        let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-                        let screen_rows = (rows as usize).saturating_sub(1);
-                        self.cursor_y = (self.cursor_y + screen_rows).min(self.lines.len() - 1);
-                        self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
-                    }
-                    // Enter (改行)
-                    (_, KeyCode::Enter) => {
-                        self.insert_newline();
-                    }
-                    // Backspace (書記素削除)
-                    (_, KeyCode::Backspace) => {
-                        self.delete_backward_grapheme();
-                    }
-                    // 通常の文字入力
-                    (_, KeyCode::Char(c)) => {
-                        self.insert_str(&c.to_string());
-                    }
-                    _ => {}
-                }
-
-                if self.running {
+        while self.running && !is_term_requested() {
+            if !event::poll(Duration::from_millis(100))? {
+                continue;
+            }
+            match event::read()? {
+                Event::Resize(_, _) => {
                     self.render()?;
                 }
+                Event::Paste(text) => {
+                    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+                    let parts: Vec<&str> = normalized.split('\n').collect();
+                    if parts.len() == 1 {
+                        self.insert_str(parts[0]);
+                    } else {
+                        for (idx, part) in parts.iter().enumerate() {
+                            if idx > 0 {
+                                self.insert_newline();
+                            }
+                            if !part.is_empty() {
+                                self.insert_str(part);
+                            }
+                        }
+                    }
+                    self.render()?;
+                }
+                Event::Key(key) => {
+                    if !self.status_message.is_empty() {
+                        self.status_message.clear();
+                    }
+
+                    match (key.modifiers, key.code) {
+                        // Ctrl+Q / Ctrl+C : 終了
+                        (KeyModifiers::CONTROL, KeyCode::Char('q'))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
+                            self.running = false;
+                        }
+                        // Ctrl+S : 保存
+                        (KeyModifiers::CONTROL, KeyCode::Char('s')) => {
+                            self.save_file();
+                        }
+                        // Ctrl+U : MinEd名物 Unicode Hex 入力
+                        (KeyModifiers::CONTROL, KeyCode::Char('u')) => {
+                            self.prompt_unicode_hex()?;
+                        }
+                        // F2 または Ctrl+T : EAWモード (Wide 2 / Narrow 1) のリアルタイムトグル
+                        (_, KeyCode::F(2))
+                        | (KeyModifiers::CONTROL, KeyCode::Char('t')) => {
+                            self.is_eaw = !self.is_eaw;
+                            self.status_message = format!(
+                                "EAW mode: {}",
+                                if self.is_eaw { "Wide (2 cells)" } else { "Narrow (1 cell)" }
+                            );
+                        }
+                        // 矢印キー移動
+                        (_, KeyCode::Up) => {
+                            if self.cursor_y > 0 {
+                                self.cursor_y -= 1;
+                                self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
+                            }
+                        }
+                        (_, KeyCode::Down) => {
+                            if self.cursor_y < self.lines.len() - 1 {
+                                self.cursor_y += 1;
+                                self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
+                            }
+                        }
+                        (_, KeyCode::Left) => {
+                            if self.cursor_x > 0 {
+                                self.cursor_x -= 1;
+                            } else if self.cursor_y > 0 {
+                                self.cursor_y -= 1;
+                                self.cursor_x = self.graphemes_at(self.cursor_y).len();
+                            }
+                        }
+                        (_, KeyCode::Right) => {
+                            let len = self.graphemes_at(self.cursor_y).len();
+                            if self.cursor_x < len {
+                                self.cursor_x += 1;
+                            } else if self.cursor_y < self.lines.len() - 1 {
+                                self.cursor_y += 1;
+                                self.cursor_x = 0;
+                            }
+                        }
+                        // Home / End
+                        (_, KeyCode::Home) => {
+                            self.cursor_x = 0;
+                        }
+                        (_, KeyCode::End) => {
+                            self.cursor_x = self.graphemes_at(self.cursor_y).len();
+                        }
+                        // PageUp / PageDown
+                        (_, KeyCode::PageUp) => {
+                            let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                            let screen_rows = (rows as usize).saturating_sub(1);
+                            self.cursor_y = self.cursor_y.saturating_sub(screen_rows);
+                            self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
+                        }
+                        (_, KeyCode::PageDown) => {
+                            let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+                            let screen_rows = (rows as usize).saturating_sub(1);
+                            self.cursor_y = (self.cursor_y + screen_rows).min(self.lines.len() - 1);
+                            self.cursor_x = self.cursor_x.min(self.graphemes_at(self.cursor_y).len());
+                        }
+                        // Enter (改行)
+                        (_, KeyCode::Enter) => {
+                            self.insert_newline();
+                        }
+                        // Backspace (書記素削除)
+                        (_, KeyCode::Backspace) => {
+                            self.delete_backward_grapheme();
+                        }
+                        // Tab
+                        (_, KeyCode::Tab) => {
+                            self.insert_str("\t");
+                        }
+                        // 通常の文字入力
+                        (_, KeyCode::Char(c)) => {
+                            self.insert_str(&c.to_string());
+                        }
+                        _ => {}
+                    }
+
+                    if self.running {
+                        self.render()?;
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -451,16 +619,18 @@ impl Editor {
 
 fn probe_eaw() -> bool {
     let mut stdout = stdout();
-    // 日本語環境で最も確実な曖昧文字 '※' (U+203B) を使ってプローブ
+    // 日本語環境で最も確実な曖昧文字 '※' (U+203B) を不可視でプローブ
     let _ = execute!(
         stdout,
+        cursor::SavePosition,
         cursor::MoveTo(0, 0),
         Clear(ClearType::CurrentLine),
-        crossterm::style::Print("※")
+        SetAttribute(Attribute::Hidden),
+        crossterm::style::Print("※"),
+        SetAttribute(Attribute::Reset)
     );
     let _ = stdout.flush();
 
-    // わずかに待機してレスポンスを確実に受信
     std::thread::sleep(std::time::Duration::from_millis(15));
 
     let is_eaw = match cursor::position() {
@@ -471,13 +641,19 @@ fn probe_eaw() -> bool {
     let _ = execute!(
         stdout,
         cursor::MoveTo(0, 0),
-        Clear(ClearType::CurrentLine)
+        Clear(ClearType::CurrentLine),
+        cursor::RestorePosition
     );
     let _ = stdout.flush();
     is_eaw
 }
 
 fn main() -> Result<(), std::io::Error> {
+    if !stdin().is_terminal() {
+        eprintln!("エラー: inzm は対話型ターミナル (TTY) で実行してください。");
+        std::process::exit(1);
+    }
+
     let args: Vec<String> = env::args().collect();
     let mut filename = None;
     let mut forced_eaw = None;
@@ -492,17 +668,13 @@ fn main() -> Result<(), std::io::Error> {
         }
     }
 
-    let is_eaw = if let Some(forced) = forced_eaw {
-        forced
-    } else {
-        enable_raw_mode()?;
-        let probed = probe_eaw();
-        disable_raw_mode()?;
-        probed
+    let (is_eaw, auto_probe) = match forced_eaw {
+        Some(forced) => (forced, false),
+        None => (true, true),
     };
 
     let mut editor = Editor::new(filename, is_eaw);
-    editor.run()
+    editor.run(auto_probe)
 }
 
 #[cfg(test)]
@@ -548,5 +720,25 @@ mod tests {
         let star_info = ed.current_char_info();
         assert!(star_info.contains("U+203B"), "Expected U+203B in info, got: {}", star_info);
         assert!(star_info.contains("Wide (2 cells)"), "In EAW environment, ※ must be Wide (2 cells)!");
+
+        // Tab の幅テスト ("Zero width" にならないこと)
+        ed.lines[0] = "\t".to_string();
+        ed.cursor_x = 0;
+        let tab_info = ed.current_char_info();
+        assert!(tab_info.contains("U+0009"), "Expected U+0009 in info, got: {}", tab_info);
+        assert!(!tab_info.contains("Zero width"), "Tab must not be labeled Zero width: {}", tab_info);
+        assert!(tab_info.contains("Tab (4 cells)"), "Expected Tab (4 cells), got: {}", tab_info);
+    }
+
+    #[test]
+    fn test_sanitize_crlf_grapheme() {
+        let ed = Editor::new(None, true);
+        let (out, w) = ed.sanitize_and_measure("a\r\nb", None);
+        assert_eq!(out, "a^M^Jb");
+        assert_eq!(w, 6);
+
+        let (trunc, tw) = ed.sanitize_and_measure("a\r\nb", Some(3));
+        assert_eq!(trunc, "a^M");
+        assert_eq!(tw, 3);
     }
 }

@@ -86,27 +86,73 @@ printf '\033]0;\007'
 
 描画関数（Render）の中で毎回このパターンを実行すると、画面のチラつき（フリッカー）がなく綺麗なTUIが実現できます。
 
+- **毎フレーム `\x1b[2J`（全画面クリア）を呼ばない**: 全消去→再描画は激しいチラつきの原因になるため、`\x1b[H` で左上へ戻り、各行末で `\x1b[K` を使って上書き更新します（残余行は末尾で `\x1b[J`）。
+- **Synchronized Output（`\x1b[?2026h` / `\x1b[?2026l`）**: iTerm2 / WezTerm / kitty / Ghostty / Alacritty 等の現代的な端末では、フレーム全体をこれで囲むことで描画途中のティアリングを防げます（非対応端末では単に無視されるため安全に併用できます）。
+
 ```typescript
+function sanitizeForTerminal(str: string, tabWidth = 4): { text: string; width: number } {
+  let out = "";
+  let col = 0;
+  for (const ch of Array.from(str)) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (ch === "\t") {
+      const spaces = tabWidth - (col % tabWidth);
+      out += " ".repeat(spaces);
+      col += spaces;
+    } else if (code < 0x20 || code === 0x7f || (code >= 0x80 && code <= 0x9f)) {
+      const vis = code < 0x20 ? `^${String.fromCharCode(code + 64)}` : code === 0x7f ? "^?" : "?";
+      out += vis;
+      col += vis.length;
+    } else {
+      out += ch;
+      col += 1; // 簡易幅（全角文字を扱う場合は EAW 幅を加算）
+    }
+  }
+  return { text: out, width: col };
+}
+
 function render(lines: string[], cursorX: number, cursorY: number) {
   let output = "";
 
-  output += "\x1b[?25l"; // 1. カーソル隠す
-  output += "\x1b[H";     // 2. 左上へ移動
+  output += "\x1b[?2026h"; // 0. 同期描画開始（対応端末でのチラつき防止）
+  output += "\x1b[?25l";   // 1. カーソル隠す
+  output += "\x1b[H";      // 2. 左上へ移動
 
   // 3. テキスト行の描画
   for (let i = 0; i < lines.length; i++) {
     output += `\x1b[90m${(i + 1).toString().padStart(3, " ")} \x1b[0m`; // 行番号
-    output += lines[i];
+    output += sanitizeForTerminal(lines[i]).text; // 制御文字(\x1b等)や\tは可視化・展開して出力
     output += "\x1b[K\r\n"; // 行末まで消して改行
   }
 
-  // 4. ステータスバーの描画
+  // 4. ステータスバーの描画（右端の自動折り返し・最下行スクロール防止のため幅制御を推奨）
   output += "\x1b[7m -- キミのエディタ (Ctrl+Q: 終了, Ctrl+S: 保存) -- \x1b[0m\x1b[K";
 
-  // 5. カーソル位置を元の場所へ（行番号の幅 + 4列オフセット考慮）
-  output += `\x1b[${cursorY + 1};${cursorX + 5}H`;
-  output += "\x1b[?25h"; // 6. カーソル再表示
+  // 5. カーソル位置を元の場所へ（制御文字・タブ展開後の表示幅 + 行番号4列オフセット）
+  const prefix = Array.from(lines[cursorY] ?? "").slice(0, cursorX).join("");
+  const visualX = sanitizeForTerminal(prefix).width;
+  output += `\x1b[${cursorY + 1};${visualX + 5}H`;
+  output += "\x1b[?25h";   // 6. カーソル再表示
+  output += "\x1b[?2026l"; // 7. 同期描画終了（一括反映）
 
   process.stdout.write(output);
 }
 ```
+
+---
+
+## 🛡 実用上の重要ノウハウ（描画・ペースト・画面端）
+
+### 1. ファイル内の制御文字をそのまま出力しない（Escape Injection 防止）
+ファイル内容に `\x1b`（ESC）・`\r`・その他 `C0` (`0x00..0x1F`) / `DEL` (`0x7F`) / `C1` (`0x80..0x9F`) が含まれるとき、生データをそのまま標準出力へ書き出すと**ファイル内容が端末制御コマンドとして実行**され、画面崩壊やタイトル改ざんが起きます。
+- 制御文字は `^X`（例: `\x1b` → `^[`）や `?` 等に置換して描画し、幅計算も同じ可視化後の幅で行います。
+- **タブ文字 (`\t`)** も生出力すると端末の固定 8 桁タブストップに飛んでカーソル座標がズレるため、`tabWidth - (col % tabWidth)` 個のスペースへ展開して描画します。
+
+### 2. Bracketed Paste Mode（`\x1b[?2004h` / `\x1b[?2004l`）
+クリップボードから複数行のコード等を貼り付けた際、改行ごとにオートインデントが増殖したり、Vim モードのノーマル状態で文字がコマンドとして暴発したりするのを防ぎます。
+- 起動時に `\x1b[?2004h` を送ると、端末はペースト内容を **`\x1b[200~`** と **`\x1b[201~`** で囲んで送ってきます（この間はコマンド解釈を止めて純粋な文字・改行挿入として扱う）。
+- **鉄則**: 終了時に必ず **`\x1b[?2004l`** で解除してから抜けること（解除し忘れると終了後のシェル操作にゴミシーケンスが混入します）。
+
+### 3. 画面右端の自動折り返し（`xenl`）と最下行スクロールの罠
+多くの VT100/xterm 系端末は「行末（`cols` 列目）に文字を置いた直後はまだ改行せず、次の文字が来た瞬間に折り返す（Pending Wrap / `xenl`）」仕様ですが、端末によっては即座に改行したり、最下行右端（`rows` 行 `cols` 列）へ文字を書いた瞬間に画面全体が 1 行上へスクロールしてしまいます。
+- ステータスバーや本文は **最大 `cols - 1` 列までに切り詰める**（残り 1 セルに幅 2 の全角文字を入れない）ことと、**最下行の末尾では `\r\n` を出力しない**ことで、端末差によるレイアウト崩れをほぼ完全に回避できます。

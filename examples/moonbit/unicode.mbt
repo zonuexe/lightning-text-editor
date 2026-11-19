@@ -87,11 +87,39 @@ pub fn char_width(ch : Char, is_eaw : Bool) -> Int32 {
 }
 
 ///|
+/// Return the terminal-safe display string and cell width for `ch` at column `col`.
+pub fn sanitize_char_at(
+  ch : Char,
+  col : Int32,
+  is_eaw : Bool,
+) -> (String, Int32) {
+  let cp = ch.to_int()
+  if cp == 0x09 {
+    let tw = 4 - col % 4
+    let sb = StringBuilder()
+    for _i = 0; _i < tw; _i = _i + 1 {
+      sb.write_char(' ')
+    }
+    (sb.to_string(), tw)
+  } else if cp < 0x20 {
+    let rep = (cp + 64).unsafe_to_char()
+    ("^\{rep}", 2)
+  } else if cp == 0x7F {
+    ("^?", 2)
+  } else if cp >= 0x80 && cp < 0xA0 {
+    ("?", 1)
+  } else {
+    (ch.to_string(), char_width(ch, is_eaw))
+  }
+}
+
+///|
 /// Compute total terminal cell width of a `String`.
 pub fn string_width(s : String, is_eaw : Bool) -> Int32 {
   let mut w = 0
   for ch in s {
-    w += char_width(ch, is_eaw)
+    let (_, cw) = sanitize_char_at(ch, w, is_eaw)
+    w += cw
   }
   w
 }

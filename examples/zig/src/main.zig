@@ -5,6 +5,34 @@ const Editor = core.Editor;
 
 var orig_termios: std.posix.termios = undefined;
 var raw_enabled = false;
+var needs_resize = std.atomic.Value(bool).init(false);
+var signal_quit = std.atomic.Value(bool).init(false);
+
+fn onSigWinch(_: std.posix.SIG) callconv(.c) void {
+    needs_resize.store(true, .release);
+}
+
+fn onSigTerm(_: std.posix.SIG) callconv(.c) void {
+    signal_quit.store(true, .release);
+}
+
+fn installSignals() void {
+    const empty_mask = std.mem.zeroes(std.posix.sigset_t);
+    const winch_act = std.posix.Sigaction{
+        .handler = .{ .handler = onSigWinch },
+        .mask = empty_mask,
+        .flags = 0, // Do NOT set SA_RESTART so read() returns EINTR on resize
+    };
+    std.posix.sigaction(std.posix.SIG.WINCH, &winch_act, null);
+
+    const term_act = std.posix.Sigaction{
+        .handler = .{ .handler = onSigTerm },
+        .mask = empty_mask,
+        .flags = 0,
+    };
+    std.posix.sigaction(std.posix.SIG.TERM, &term_act, null);
+    std.posix.sigaction(std.posix.SIG.HUP, &term_act, null);
+}
 
 fn disableRawMode() void {
     if (raw_enabled) {
@@ -48,15 +76,25 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(arena);
     const filename = if (args.len >= 2) args[1] else "sample.txt";
 
+    const stdin_file: Io.File = .stdin();
+    if (!(stdin_file.isTty(io) catch false)) {
+        std.debug.print("Error: inzm.zig requires an interactive TTY.\n", .{});
+        std.process.exit(1);
+    }
+
+    enableRawMode() catch {
+        std.debug.print("Error: inzm.zig requires an interactive TTY.\n", .{});
+        std.process.exit(1);
+    };
+    defer disableRawMode();
+    installSignals();
+
     const initial_content = Io.Dir.cwd().readFileAlloc(io, filename, alloc, .limited(16 * 1024 * 1024)) catch "";
     defer if (initial_content.len > 0) alloc.free(initial_content);
 
     const sz = getTerminalSize();
     var editor = try Editor.init(alloc, sz.cols, sz.rows, filename, initial_content);
     defer editor.deinit();
-
-    try enableRawMode();
-    defer disableRawMode();
 
     const stdout: Io.File = .stdout();
     try stdout.writeStreamingAll(io, Editor.enterAltScreen());
@@ -69,8 +107,25 @@ pub fn main(init: std.process.Init) !void {
     try stdout.writeStreamingAll(io, out.items);
 
     var read_buf: [128]u8 = undefined;
-    while (!editor.should_quit) {
-        const n = std.posix.read(std.posix.STDIN_FILENO, &read_buf) catch break;
+    while (!editor.should_quit and !signal_quit.load(.acquire)) {
+        const rc = std.posix.system.read(std.posix.STDIN_FILENO, &read_buf, read_buf.len);
+        const n: usize = switch (std.posix.errno(rc)) {
+            .SUCCESS => @intCast(rc),
+            .INTR => {
+                if (signal_quit.load(.acquire)) break;
+                if (needs_resize.swap(false, .acq_rel)) {
+                    const new_sz = getTerminalSize();
+                    if (new_sz.cols != editor.cols or new_sz.rows != editor.rows) {
+                        editor.resize(new_sz.cols, new_sz.rows);
+                    }
+                    out.clearRetainingCapacity();
+                    try editor.render(&out);
+                    try stdout.writeStreamingAll(io, out.items);
+                }
+                continue;
+            },
+            else => break,
+        };
         if (n == 0) break;
 
         const cur_sz = getTerminalSize();

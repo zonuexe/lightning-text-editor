@@ -43,6 +43,7 @@ function cleanup() {
 }
 process.on("exit", cleanup);
 process.on("SIGINT", () => process.exit(0));
+process.on("SIGTERM", () => process.exit(0));
 
 // 3. キー入力の受付
 process.stdin.on("data", (data: Buffer) => {
@@ -109,3 +110,5 @@ process.stdout.write(renderedString);
    - 生モードの解除は **エディタ終了時（`cleanup`）のみ** 行います。描画ごとに解除すると画面表示が乱れキー入力が途切れます。
 3. **改行は `\n` ではなく `\r\n` を使う**:
    - 生モード下では `\n` は「1行下がるだけ」でカーソルが左端に戻りません。必ず `\r\n` を出力します。
+4. **`data` チャンクの分断・結合とリサイズに備える**:
+   - 高速なキー連打や貼り付け時には `\x1b[A\x1b[B` が 1 回の `data` イベントにまとまって届いたり、SSH 越しでは `\x1b` と `[A` に分断されたりします。本番実装ではストリームパーサ（と `process.stdout.on("resize", ...)` による再描画）を組み合わせます。

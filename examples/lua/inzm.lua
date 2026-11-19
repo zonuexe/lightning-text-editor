@@ -38,24 +38,102 @@ local function char_width(code)
     return 1
 end
 
-local function str_width(s)
-    local w = 0
-    for _, code in utf8.codes(s) do
-        w = w + char_width(code)
+local function utf8_codepoints(s)
+    local cps = {}
+    local n = #s
+    local i = 1
+    while i <= n do
+        local b1 = s:byte(i)
+        if b1 < 0x80 then
+            table.insert(cps, b1)
+            i = i + 1
+        elseif b1 >= 0xC2 and b1 <= 0xDF and i + 1 <= n then
+            local b2 = s:byte(i + 1)
+            if b2 >= 0x80 and b2 <= 0xBF then
+                table.insert(cps, ((b1 - 0xC0) * 64) + (b2 - 0x80))
+                i = i + 2
+            else
+                table.insert(cps, 0xFFFD)
+                i = i + 1
+            end
+        elseif b1 >= 0xE0 and b1 <= 0xEF and i + 2 <= n then
+            local b2, b3 = s:byte(i + 1, i + 2)
+            if b2 >= 0x80 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF
+               and not (b1 == 0xE0 and b2 < 0xA0)
+               and not (b1 == 0xED and b2 >= 0xA0) then
+                table.insert(cps, ((b1 - 0xE0) * 4096) + ((b2 - 0x80) * 64) + (b3 - 0x80))
+                i = i + 3
+            else
+                table.insert(cps, 0xFFFD)
+                i = i + 1
+            end
+        elseif b1 >= 0xF0 and b1 <= 0xF4 and i + 3 <= n then
+            local b2, b3, b4 = s:byte(i + 1, i + 3)
+            if b2 >= 0x80 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF and b4 >= 0x80 and b4 <= 0xBF
+               and not (b1 == 0xF0 and b2 < 0x90)
+               and not (b1 == 0xF4 and b2 > 0x8F) then
+                table.insert(cps, ((b1 - 0xF0) * 262144) + ((b2 - 0x80) * 4096) + ((b3 - 0x80) * 64) + (b4 - 0x80))
+                i = i + 4
+            else
+                table.insert(cps, 0xFFFD)
+                i = i + 1
+            end
+        else
+            table.insert(cps, 0xFFFD)
+            i = i + 1
+        end
     end
+    return cps
+end
+
+local function scrub_utf8(s)
+    local out = {}
+    for _, code in ipairs(utf8_codepoints(s)) do
+        table.insert(out, utf8.char(code))
+    end
+    return table.concat(out)
+end
+
+local function utf8_char_count(s)
+    return #utf8_codepoints(s)
+end
+
+local function sanitize_codepoint(code, col, tab_width)
+    if code == 9 then
+        local cw = tab_width - (col % tab_width)
+        return cw, string.rep(" ", cw)
+    elseif code < 0x20 then
+        return 2, "^" .. string.char(code + 64)
+    elseif code == 0x7F then
+        return 2, "^?"
+    elseif code >= 0x80 and code < 0xA0 then
+        return 1, "?"
+    else
+        return char_width(code), utf8.char(code)
+    end
+end
+
+local function sanitize_and_measure(s, max_w, tab_width)
+    tab_width = tab_width or 4
+    local col = 0
+    local res = {}
+    for _, code in ipairs(utf8_codepoints(s)) do
+        local cw, disp = sanitize_codepoint(code, col, tab_width)
+        if max_w and col + cw > max_w then break end
+        table.insert(res, disp)
+        col = col + cw
+    end
+    return table.concat(res), col
+end
+
+local function str_width(s)
+    local _, w = sanitize_and_measure(s)
     return w
 end
 
 local function truncate_str(s, max_w)
-    local cur_w = 0
-    local res = {}
-    for p, code in utf8.codes(s) do
-        local cw = char_width(code)
-        if cur_w + cw > max_w then break end
-        table.insert(res, utf8.char(code))
-        cur_w = cur_w + cw
-    end
-    return table.concat(res)
+    local out = sanitize_and_measure(s, max_w)
+    return out
 end
 
 local function set_title(title)
@@ -63,12 +141,45 @@ local function set_title(title)
     io.flush()
 end
 
+local orig_stty = nil
+local function set_tty_vtime(vtime)
+    if vtime and vtime > 0 then
+        os.execute(string.format("stty min 0 time %d < /dev/tty 2>/dev/null || stty min 0 time %d 2>/dev/null", vtime, vtime))
+    else
+        os.execute("stty min 1 time 0 < /dev/tty 2>/dev/null || stty min 1 time 0 2>/dev/null")
+    end
+end
+
+local function with_tty_vtime(vtime, fn)
+    set_tty_vtime(vtime)
+    local ok, res = pcall(fn)
+    set_tty_vtime(0)
+    if not ok then error(res) end
+    return res
+end
+
 local function set_raw_mode(enable)
     if enable then
-        -- -ixon: Ctrl+S / Ctrl+Q のフロー制御(XON/XOFF)を無効化し、エディタにキーを渡す！
-        os.execute("stty -icanon -echo -ixon min 1 time 1 < /dev/tty 2>/dev/null || stty -icanon -echo -ixon min 1 time 1 2>/dev/null")
+        if not orig_stty then
+            local h = io.popen("stty -g < /dev/tty 2>/dev/null")
+            if h then
+                local saved = h:read("*a")
+                h:close()
+                if saved then
+                    saved = saved:gsub("%s+$", "")
+                    if saved ~= "" then orig_stty = saved end
+                end
+            end
+        end
+        io.stdin:setvbuf("no")
+        -- -ixon: Ctrl+S/Q フロー制御無効化, -icrnl: CR->NL変換無効化, -iexten: ^O/^V/^Y等の拡張文字無効化, intr/quit/susp undef: Ctrl+C等を文字として受信
+        os.execute("stty -icanon -echo -ixon -icrnl -iexten intr undef quit undef susp undef min 1 time 0 < /dev/tty 2>/dev/null || stty -icanon -echo -ixon -icrnl -iexten intr undef quit undef susp undef min 1 time 0 2>/dev/null")
     else
-        os.execute("stty sane < /dev/tty 2>/dev/null || stty sane 2>/dev/null")
+        if orig_stty then
+            os.execute("stty '" .. orig_stty:gsub("'", "'\\''") .. "' < /dev/tty 2>/dev/null || stty sane 2>/dev/null")
+        else
+            os.execute("stty sane < /dev/tty 2>/dev/null || stty sane 2>/dev/null")
+        end
     end
 end
 
@@ -85,27 +196,44 @@ local function get_window_size()
     return 80, 24
 end
 
+local pending_bytes = ""
+
+local function read_raw_byte()
+    if #pending_bytes > 0 then
+        local b = pending_bytes:sub(1, 1)
+        pending_bytes = pending_bytes:sub(2)
+        return b
+    end
+    return io.read(1)
+end
+
 local function probe_eaw()
-    io.write("\27[1;1H\27[2Kα\27[6n")
+    io.write("\0277\27[1;1H\27[2K\27[8mα\27[6n\27[0m")
     io.flush()
 
     local resp = ""
-    local start_t = os.clock()
-    while os.clock() - start_t < 0.1 do
-        local c = io.read(1)
-        if c then
+    local found_col = nil
+    with_tty_vtime(1, function()
+        while #resp < 64 do
+            local c = io.read(1)
+            if not c then break end
             resp = resp .. c
-            if c == "R" then break end
+            local s, e, _, col = resp:find("\27%[(%d+);(%d+)R")
+            if s then
+                local rest = resp:sub(1, s - 1) .. resp:sub(e + 1)
+                if #rest > 0 then pending_bytes = pending_bytes .. rest end
+                found_col = tonumber(col)
+                return
+            end
         end
-    end
+    end)
 
-    io.write("\27[1;1H\27[2K")
+    io.write("\27[1;1H\27[2K\0278")
     io.flush()
-
-    local col = resp:match("%[(%d+);(%d+)R")
-    if col then
-        return tonumber(col) == 3
+    if found_col ~= nil then
+        return found_col == 3
     end
+    if #resp > 0 then pending_bytes = pending_bytes .. resp end
     return true
 end
 
@@ -213,7 +341,7 @@ end
 function Editor:chars_at(y)
     local line = self.lines[y + 1] or ""
     local chars = {}
-    for _, code in utf8.codes(line) do
+    for _, code in ipairs(utf8_codepoints(line)) do
         table.insert(chars, utf8.char(code))
     end
     return chars
@@ -237,10 +365,11 @@ function Editor:render()
     set_title(string.format("micro - %s%s", self.filename, self.is_modified and "*" or ""))
 
     local out = {}
-    table.insert(out, "\27[?25l") -- Hide cursor
+    table.insert(out, "\27[?2026h\27[?25l") -- Sync update & Hide cursor
 
     -- 1. Text Area (Row 1 .. rows - 2)
     local line_num_width = 4
+    local text_cols = math.max(1, cols - line_num_width - 1)
     for i = 0, screen_rows - 1 do
         local file_row = self.row_offset + i
         table.insert(out, string.format("\27[%d;1H", i + 1))
@@ -248,7 +377,7 @@ function Editor:render()
         if file_row < #self.lines then
             local line_num = string.format("%3d ", file_row + 1)
             table.insert(out, "\27[90m" .. line_num .. "\27[0m")
-            table.insert(out, self.lines[file_row + 1])
+            table.insert(out, truncate_str(self.lines[file_row + 1], text_cols))
             table.insert(out, "\27[K")
         else
             table.insert(out, "\27[90m  ~ \27[0m\27[K")
@@ -277,26 +406,24 @@ function Editor:render()
     -- 3. Command/Prompt Line (Row rows)
     table.insert(out, string.format("\27[%d;1H", rows))
     if self.command_mode then
-        table.insert(out, "\27[1;36m> \27[0m" .. self.command_buffer .. "\27[K")
+        table.insert(out, "\27[1;36m> \27[0m" .. truncate_str(self.command_buffer, math.max(1, cols - 3)) .. "\27[K")
     elseif self.status_message ~= "" then
-        table.insert(out, "\27[36m" .. self.status_message .. "\27[0m\27[K")
+        table.insert(out, "\27[36m" .. truncate_str(self.status_message, max_bar_w) .. "\27[0m\27[K")
     else
-        table.insert(out, "\27[90mPress Ctrl+E for command prompt, Ctrl+F to find, Ctrl+S to save\27[0m\27[K")
+        table.insert(out, "\27[90m" .. truncate_str("Press Ctrl+E for command prompt, Ctrl+F to find, Ctrl+S to save", max_bar_w) .. "\27[0m\27[K")
     end
 
     -- 4. Set cursor position
     if self.command_mode then
-        local cmd_x = 3 + str_width(self.command_buffer)
-        table.insert(out, string.format("\27[%d;%dH\27[?25h", rows, cmd_x))
+        local cmd_x = math.min(cols, 3 + str_width(self.command_buffer))
+        table.insert(out, string.format("\27[%d;%dH\27[?25h\27[?2026l", rows, cmd_x))
     else
         local screen_y = (self.cursor_y - self.row_offset) + 1
         local chars = self:chars_at(self.cursor_y)
-        local visual_x = 0
-        for idx = 1, math.min(self.cursor_x, #chars) do
-            visual_x = visual_x + str_width(chars[idx])
-        end
-        local screen_x = visual_x + line_num_width + 1
-        table.insert(out, string.format("\27[%d;%dH\27[?25h", screen_y, screen_x))
+        local prefix = table.concat(chars, "", 1, math.min(self.cursor_x, #chars))
+        local visual_x = str_width(prefix)
+        local screen_x = math.min(cols, visual_x + line_num_width + 1)
+        table.insert(out, string.format("\27[%d;%dH\27[?25h\27[?2026l", screen_y, screen_x))
     end
 
     io.write(table.concat(out))
@@ -343,7 +470,7 @@ function Editor:execute_command(input)
         end
         io.write("\r\n\r\n\27[7m [Press any key to return] \27[0m\r\n")
         io.flush()
-        io.read(1)
+        read_raw_byte()
         self.status_message = "Command finished: " .. sh_cmd
     elseif op == "set" then
         local key_opt, val = parts[2], parts[3]
@@ -387,12 +514,53 @@ end
 -- 4. Key Handling & Text Editing
 -- =============================================================================
 function Editor:insert_text(text)
+    local clean = scrub_utf8(text)
     local chars = self:chars_at(self.cursor_y)
     local before = table.concat(chars, "", 1, self.cursor_x)
     local after = table.concat(chars, "", self.cursor_x + 1)
 
-    self.lines[self.cursor_y + 1] = before .. text .. after
-    self.cursor_x = self.cursor_x + (utf8.len(text) or 1)
+    self.lines[self.cursor_y + 1] = before .. clean .. after
+    self.cursor_x = self.cursor_x + utf8_char_count(clean)
+    self.is_modified = true
+end
+
+function Editor:insert_pasted_text(pasted)
+    local clean = scrub_utf8(pasted):gsub("\r\n", "\n"):gsub("\r", "\n")
+    local paste_lines = {}
+    local start = 1
+    while true do
+        local nl = clean:find("\n", start, true)
+        if nl then
+            table.insert(paste_lines, clean:sub(start, nl - 1))
+            start = nl + 1
+        else
+            table.insert(paste_lines, clean:sub(start))
+            break
+        end
+    end
+
+    local chars = self:chars_at(self.cursor_y)
+    local before = table.concat(chars, "", 1, self.cursor_x)
+    local after = table.concat(chars, "", self.cursor_x + 1)
+    if #paste_lines == 1 then
+        self.lines[self.cursor_y + 1] = before .. paste_lines[1] .. after
+        self.cursor_x = self.cursor_x + utf8_char_count(paste_lines[1])
+    else
+        local old_len = #self.lines
+        local base = self.cursor_y + 1
+        local shift = #paste_lines - 1
+        if base + 1 <= old_len then
+            table.move(self.lines, base + 1, old_len, base + 1 + shift)
+        end
+        self.lines[base] = before .. paste_lines[1]
+        for i = 2, #paste_lines - 1 do
+            self.lines[base + i - 1] = paste_lines[i]
+        end
+        local last = paste_lines[#paste_lines]
+        self.lines[base + shift] = last .. after
+        self.cursor_y = self.cursor_y + shift
+        self.cursor_x = utf8_char_count(last)
+    end
     self.is_modified = true
 end
 
@@ -454,71 +622,134 @@ function Editor:move_cursor(dx, dy)
 end
 
 function Editor:read_key()
-    local c = io.read(1)
+    local c = read_raw_byte()
     if not c then return nil end
 
     if c == "\27" then
-        -- Read escape sequence
-        local c2 = io.read(1)
-        if not c2 then return "\27" end
+        -- Read escape sequence (100ms timeout for bare Esc vs CSI/SS3/Meta)
+        return with_tty_vtime(1, function()
+            local c2 = read_raw_byte()
+            if not c2 then return "\27" end
 
-        if c2 == "[" then
-            local seq = "\27["
-            while true do
-                local next_c = io.read(1)
-                if not next_c then break end
-                seq = seq .. next_c
-                if next_c:match("[A-Za-z~]") then break end
+            if c2 == "[" then
+                local seq = "\27["
+                while true do
+                    local next_c = read_raw_byte()
+                    if not next_c then break end
+                    seq = seq .. next_c
+                    local b = string.byte(next_c)
+                    if b >= 0x40 and b <= 0x7E then break end
+                end
+                return seq
+            elseif c2 == "O" then
+                local c3 = read_raw_byte()
+                if not c3 then return "\27O" end
+                local ss3 = { A = "\27[A", B = "\27[B", C = "\27[C", D = "\27[D", H = "\27[H", F = "\27[F" }
+                return ss3[c3] or ("\27O" .. c3)
+            else
+                return "\27" .. c2
             end
-            return seq
-        else
-            return "\27" .. c2
-        end
+        end)
     end
 
     -- UTF-8 multibyte
     local b = string.byte(c)
     local len = 1
-    if b >= 0xF0 then len = 4
+    if b >= 0xF0 and b <= 0xF4 then len = 4
     elseif b >= 0xE0 then len = 3
-    elseif b >= 0xC0 then len = 2 end
+    elseif b >= 0xC2 then len = 2 end
 
     if len > 1 then
-        for _ = 2, len do
-            local next_b = io.read(1)
-            if next_b then c = c .. next_b end
-        end
+        c = with_tty_vtime(1, function()
+            local s = c
+            for _ = 2, len do
+                local next_b = read_raw_byte()
+                if not next_b then break end
+                s = s .. next_b
+            end
+            return s
+        end)
     end
 
-    return c
+    return scrub_utf8(c)
+end
+
+function Editor:read_bracketed_paste()
+    return with_tty_vtime(2, function()
+        local buf = {}
+        local end_marker = "\27[201~"
+        local tail = ""
+        while true do
+            local c = read_raw_byte()
+            if not c then break end
+            table.insert(buf, c)
+            tail = (tail .. c):sub(-#end_marker)
+            if tail == end_marker then
+                local full = table.concat(buf)
+                return full:sub(1, -#end_marker - 1)
+            end
+        end
+        return table.concat(buf)
+    end)
 end
 
 -- =============================================================================
 -- 5. Main Loop
 -- =============================================================================
+function Editor:cleanup()
+    set_title("")
+    io.write("\27[?2004l\27[?1000l\27[?1006l\27[?1049l\27[?25h\27[0m")
+    io.flush()
+    set_raw_mode(false)
+end
+
 function Editor:run()
+    local tty_ok = os.execute("test -t 0")
+    if not tty_ok then
+        io.stderr:write("エラー: inzm.lua は対話型ターミナル (TTY) で実行してください。\n")
+        os.exit(1)
+    end
+
     set_raw_mode(true)
-    -- 代替画面バッファ & SGRマウスモード有効化 (クリック & ホイール)
-    io.write("\27[?1049h\27[2J\27[H\27[?1000h\27[?1006h")
+    -- 代替画面バッファ & SGRマウスモード & Bracketed Paste 有効化
+    io.write("\27[?1049h\27[2J\27[H\27[?1000h\27[?1006h\27[?2004h")
     io.flush()
 
-    is_eaw = probe_eaw()
-    self:load_init_lua()
-    self:render()
+    local ok, err = xpcall(function()
+        is_eaw = probe_eaw()
+        self:load_init_lua()
+        self:render()
 
-    while self.running do
-        local key = self:read_key()
-        if not key then break end
+        while self.running do
+            local key = self:read_key()
+            if not key then break end
 
-        if self.status_message ~= "" and not self.command_mode then
-            self.status_message = ""
-        end
-        if key ~= "\17" and key ~= "\3" then
-            self.quit_confirmed = false
-        end
+            if self.status_message ~= "" and not self.command_mode then
+                self.status_message = ""
+            end
+            if key ~= "\17" and key ~= "\3" then
+                self.quit_confirmed = false
+            end
 
-        -- ==================== Command Mode (`Ctrl+E`) ====================
-        if self.command_mode then
+            -- Bracketed Paste (\27[200~ ... \27[201~)
+            if key == "\27[200~" then
+                local pasted = self:read_bracketed_paste():gsub("\r\n", "\n"):gsub("\r", "\n")
+                if self.command_mode then
+                    local first_line = scrub_utf8(pasted:match("^([^\n]*)") or "")
+                    local clean_parts = {}
+                    for _, code in ipairs(utf8_codepoints(first_line)) do
+                        if code == 9 then
+                            table.insert(clean_parts, " ")
+                        elseif code >= 0x20 and code ~= 0x7F and not (code >= 0x80 and code < 0xA0) then
+                            table.insert(clean_parts, utf8.char(code))
+                        end
+                    end
+                    self.command_buffer = self.command_buffer .. table.concat(clean_parts)
+                else
+                    self:insert_pasted_text(pasted)
+                end
+            -- ==================== Command Mode (`Ctrl+E`) ====================
+            elseif self.command_mode then
             if key == "\r" or key == "\n" then
                 self:execute_command(self.command_buffer)
             elseif key == "\27" or key == "\3" then -- Esc / Ctrl+C
@@ -527,7 +758,7 @@ function Editor:run()
             elseif key == "\127" or key == "\8" then -- Backspace
                 if #self.command_buffer > 0 then
                     local chars = {}
-                    for _, code in utf8.codes(self.command_buffer) do
+                    for _, code in ipairs(utf8_codepoints(self.command_buffer)) do
                         table.insert(chars, utf8.char(code))
                     end
                     table.remove(chars)
@@ -559,12 +790,13 @@ function Editor:run()
                             local target_y = self.row_offset + (row - 1)
                             if target_y < #self.lines then
                                 self.cursor_y = target_y
-                                local text_col = math.max(0, col - 6) -- 行番号幅(4)+スペース(1)+1-indexed
+                                local text_col = math.max(0, col - 5) -- 行番号幅(4)+1-indexed
                                 local chars = self:chars_at(self.cursor_y)
                                 local cur_w = 0
                                 local target_x = 0
                                 for idx, ch in ipairs(chars) do
-                                    local cw = str_width(ch)
+                                    local cp = utf8.codepoint(ch)
+                                    local cw = sanitize_codepoint(cp, cur_w, 4)
                                     if cur_w + cw > text_col then break end
                                     cur_w = cur_w + cw
                                     target_x = idx
@@ -661,13 +893,13 @@ function Editor:run()
             self:render()
         end
     end
+    end, debug.traceback)
 
-    -- Cleanup
-    set_title("")
-    -- マウスモード無効化 & 通常画面復帰
-    io.write("\27[?1000l\27[?1006l\27[?1049l\27[?25h")
-    io.flush()
-    set_raw_mode(false)
+    self:cleanup()
+    if not ok then
+        io.stderr:write("Editor error: " .. tostring(err) .. "\n")
+        os.exit(1)
+    end
 end
 
 -- --- Entrypoint ---

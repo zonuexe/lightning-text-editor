@@ -90,3 +90,5 @@ File.write("sample.txt", lines.join("\n") + "\n")
    - `String#[]` のバイトインデックス操作を避け、文字単位の配列や `insert` / `slice!` で安全に操作しましょう。
 3. **改行の出力は `print "\r\n"` を徹底する**:
    - `puts` は端末生モード下では `\r` を伴わない場合があるため、明示的に `print "...\r\n"` を使用します。
+4. **`\e` 後の `read_nonblock` と `WINCH` / `TERM` シグナル**:
+   - SSH 越し等で `\e` と `[A` が別パケットで届くと直後の `read_nonblock` で取りこぼすことがあるため、`IO.select([io], nil, nil, 0.05)` で短時間待ってから判定すると安定します。また `Signal.trap("WINCH")` でリサイズ検知する場合は、ハンドラ内ではフラグ更新に留めてメインループ側で再描画します。

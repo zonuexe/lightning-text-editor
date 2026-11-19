@@ -24,13 +24,19 @@ python3 inzm.py sample.py
 
 ```python
 # editor.py
+import os
 import sys
 import tty
 import termios
 import atexit
+import codecs
+import select
+import signal
 
 fd = sys.stdin.fileno()
 old_settings = termios.tcgetattr(fd)
+utf8_dec = codecs.getincrementaldecoder("utf-8")("replace")
+char_buf = ""
 
 def cleanup():
     sys.stdout.write("\x1b[2J\x1b[H\x1b[?25h")
@@ -38,41 +44,71 @@ def cleanup():
     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 atexit.register(cleanup)
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
+def read_char_timeout(timeout=None):
+    global char_buf
+    while not char_buf:
+        if timeout is not None and not select.select([fd], [], [], timeout)[0]:
+            return None
+        chunk = os.read(fd, 1024)
+        if not chunk:
+            char_buf += utf8_dec.decode(b"", final=True)
+            if not char_buf:
+                return ""
+            break
+        char_buf += utf8_dec.decode(chunk)
+    ch, char_buf = char_buf[0], char_buf[1:]
+    return ch
 
 def read_key():
-    ch = sys.stdin.read(1)
-    if ch == '\x1b':
-        # エスケープシーケンス（矢印キーなど）の簡易判定
-        ch2 = sys.stdin.read(1)
-        if ch2 == '[':
-            ch3 = sys.stdin.read(1)
-            return f"\x1b[{ch3}"
+    ch = read_char_timeout(None)
+    if not ch:
+        return ""
+    if ch == "\x1b":
+        # 50ms以内に後続が来なければ単独の Esc キーとして確定（ハング防止）
+        ch2 = read_char_timeout(0.05)
+        if not ch2:
+            return "\x1b"
+        if ch2 == "[":
+            seq = "\x1b["
+            while True:
+                c = read_char_timeout(0.05)
+                if not c:
+                    break
+                seq += c
+                if 0x40 <= ord(c) <= 0x7E:  # CSI 終端バイト
+                    break
+            return seq
+        return "\x1b" + ch2
     return ch
 
 # 生モードに切り替え
 tty.setraw(fd)
-cleanup()
+sys.stdout.write("\x1b[2J\x1b[H\x1b[?25h")
 sys.stdout.write("エディタ起動！ Ctrl+Q で終了\r\n")
 sys.stdout.flush()
 
 while True:
     key = read_key()
-
-    # Ctrl+Q (\x11) または Ctrl+C (\x03) で終了
-    if key in ('\x11', '\x03'):
+    if not key:  # EOF
         break
 
-    if key == '\x1b[A':  # 上矢印
+    # Ctrl+Q (\x11) または Ctrl+C (\x03) で終了
+    if key in ("\x11", "\x03"):
+        break
+
+    if key == "\x1b[A":  # 上矢印
         pass
-    elif key == '\x1b[B':  # 下矢印
+    elif key == "\x1b[B":  # 下矢印
         pass
-    elif key == '\x1b[C':  # 右矢印
+    elif key == "\x1b[C":  # 右矢印
         pass
-    elif key == '\x1b[D':  # 左矢印
+    elif key == "\x1b[D":  # 左矢印
         pass
-    elif key in ('\r', '\n'):  # Enter
+    elif key in ("\r", "\n"):  # Enter
         pass
-    elif key in ('\x7f', '\x08'):  # Backspace
+    elif key in ("\x7f", "\x08"):  # Backspace
         pass
     else:
         # 通常の文字入力
@@ -109,5 +145,6 @@ with open(filename, "w", encoding="utf-8") as f:
    - スペースキー（`" "`）が消えて空白が入力できなくなります。
 3. **行内 Backspace のスライスミスに注意**:
    - カーソル直前の文字を消す正しいスライスは `line[:cx-1] + line[cx:]` です（`line[:cx] + line[cx:]` だと何も消えません）。
-4. **終了時の `atexit` 登録を忘れてはいけない**:
-   - 例外発生時に生モードのままだとターミナルが壊れます。必ず `termios.tcsetattr` で元に戻すクリーンアップを登録してください。
+4. **終了時の `atexit` 登録と `Esc` タイムアウトを忘れてはいけない**:
+   - 例外発生時に生モードのままだとターミナルが壊れます。必ず `termios.tcsetattr` で元に戻すクリーンアップ（と `SIGTERM` 対策）を登録してください。
+   - `\x1b` の後に無条件で読み続けると単独 `Esc` 押下でハングするため、アプリ側バッファが空のときだけ `select.select([fd], ..., 0.05)` で短タイムアウトを置きます（`sys.stdin.read(1)` は `TextIOWrapper` の内部バッファに先読みして `select` と噛み合わないため、`os.read(fd, 1024)` + `codecs.getincrementaldecoder("utf-8")` を使うのが鉄則です）。また `SIGWINCH`（ウィンドウサイズ変更）を扱う場合は、ハンドラでフラグだけ立ててメインループ側でサイズ再取得・再描画します。

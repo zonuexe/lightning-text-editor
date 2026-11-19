@@ -24,12 +24,17 @@ LINES="$(tput lines 2>/dev/null || echo 24)"
 # switches the TTY into raw mode before launching wasmtime and restores it on exit.
 if [ -t 0 ]; then
   ORIG_STTY="$(stty -g)"
+  CLEANED_UP=0
   cleanup() {
+    if [ "$CLEANED_UP" -eq 1 ]; then
+      return
+    fi
+    CLEANED_UP=1
+    printf '\033[?2004l\033[?1006l\033[?1002l\033[?1049l\033[?25h\033[0m'
     stty "$ORIG_STTY" 2>/dev/null || true
-    printf '\033[?1049l\033[?25h\033[0m'
   }
-  trap cleanup EXIT INT TERM
+  trap cleanup EXIT INT TERM HUP
   stty raw -echo
 fi
 
-exec wasmtime --dir=. --env "COLUMNS=$COLS" --env "LINES=$LINES" "$WASM_BIN" "$TARGET_FILE"
+wasmtime --dir=. --env "COLUMNS=$COLS" --env "LINES=$LINES" "$WASM_BIN" "$TARGET_FILE"

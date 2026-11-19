@@ -79,6 +79,38 @@ pub fn charWidth(cp: u21, is_eaw: bool) usize {
     return 1;
 }
 
+/// Return rendered terminal cell width at column `col`, including tab expansion and control char sanitization.
+pub fn displayWidthAt(cp: u21, col: usize, is_eaw: bool) usize {
+    if (cp == '\t') return 4 - (col % 4);
+    if (cp < 0x20 or cp == 0x7F) return 2;
+    if (cp >= 0x80 and cp < 0xA0) return 1;
+    return charWidth(cp, is_eaw);
+}
+
+/// Return terminal-safe bytes for `cp` at column `col` (avoiding raw control/ESC output).
+pub fn sanitizeSlice(cp: u21, slice: []const u8, col: usize, buf: *[4]u8) []const u8 {
+    if (cp == '\t') {
+        const tw = 4 - (col % 4);
+        @memset(buf[0..tw], ' ');
+        return buf[0..tw];
+    }
+    if (cp < 0x20) {
+        buf[0] = '^';
+        buf[1] = @intCast(cp + 64);
+        return buf[0..2];
+    }
+    if (cp == 0x7F) {
+        buf[0] = '^';
+        buf[1] = '?';
+        return buf[0..2];
+    }
+    if (cp >= 0x80 and cp < 0xA0) {
+        buf[0] = '?';
+        return buf[0..1];
+    }
+    return slice;
+}
+
 /// Compute total terminal cell width of a UTF-8 byte slice.
 pub fn strWidth(text: []const u8, is_eaw: bool) usize {
     var w: usize = 0;
@@ -86,7 +118,7 @@ pub fn strWidth(text: []const u8, is_eaw: bool) usize {
     while (i < text.len) {
         const d = decodeUtf8(text[i..]);
         if (d.len == 0) break;
-        w += charWidth(d.cp, is_eaw);
+        w += displayWidthAt(d.cp, w, is_eaw);
         i += d.len;
     }
     return w;

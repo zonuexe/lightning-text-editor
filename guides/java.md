@@ -86,3 +86,12 @@ List<String> lines = Files.exists(path) ? Files.readAllLines(path) : new ArrayLi
 // 保存
 Files.write(path, lines);
 ```
+
+---
+
+## ⚠️ 実装時のよくある落とし穴 (Common Pitfalls)
+
+1. **単独 `Esc` キーのタイムアウト (`reader.read(50)`)**:
+   - JLine の `NonBlockingReader` で `c == 27`（`\x1b`）を受け取った際、タイムアウトなしの `reader.read()` で次を読むと単独 `Esc` 押下で停止します。`reader.read(50L)` のようにミリ秒指定のタイムアウト付き読み取りを使ってください。
+2. **リサイズ (`Terminal.Signal.WINCH`) と終了フックの `flush()`**:
+   - `terminal.handle(Terminal.Signal.WINCH, ...)` でサイズ変更を検知できます。またシャットダウンフックでは必ず制御シーケンスを `flush()` してから `terminal.close()` を呼んでください。

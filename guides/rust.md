@@ -24,13 +24,14 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
-use std::io::{stdout, Result};
+use std::io::{stdout, Result, Write};
 
 struct CleanUp;
 impl Drop for CleanUp {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
         let _ = execute!(stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0), cursor::Show);
+        let _ = stdout().flush();
+        let _ = disable_raw_mode();
     }
 }
 
@@ -82,6 +83,19 @@ let lines: Vec<String> = if content.is_empty() {
     content.lines().map(|s| s.to_string()).collect()
 };
 
-// 保存
-fs::write("sample.txt", lines.join("\n"))?;
+// 保存（末尾改行を落とさないよう注意）
+let mut out = lines.join("\n");
+if !out.is_empty() {
+    out.push('\n');
+}
+fs::write("sample.txt", out)?;
 ```
+
+---
+
+## ⚠️ 実装時のよくある落とし穴 (Common Pitfalls)
+
+1. **端末サイズ変更 (`Event::Resize`) とペースト (`Event::Paste`)**:
+   - `crossterm::event::read()` はキーだけでなく `Event::Resize(cols, rows)` も返すため、`match` で拾って再描画するだけでリサイズ対応が完了します（Bracketed Paste を使う場合は `EnableBracketedPaste` / `DisableBracketedPaste` を併用）。
+2. **`content.lines()` と保存時の末尾改行**:
+   - `str::lines()` は最後の `\n` を切り捨てるため、保存時に `lines.join("\n")` のまま書き戻すと末尾改行が消えます（空ファイルとの区別や CRLF の正規化も意識するとより堅牢です）。

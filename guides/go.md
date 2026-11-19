@@ -40,8 +40,8 @@ func main() {
 		panic(err)
 	}
 	defer func() {
-		term.Restore(fd, oldState)
 		cleanup()
+		term.Restore(fd, oldState)
 	}()
 
 	cleanup()
@@ -116,3 +116,5 @@ err = os.WriteFile("sample.txt", []byte(strings.Join(lines, "\n") + "\n"), 0644)
    - Go の `string` インデックスはバイト長です。日本語（3バイト）をバイト単位でスライスすると文字化けします。必ず `[]rune(line)` に変換して操作しましょう。
 3. **古い `os/terminal` ではなく `golang.org/x/term` を使う**:
    - `os/terminal` は過去の非推奨パッケージです。現代の Go では準標準の `golang.org/x/term` を利用します。
+4. **3バイト固定バッファと `SIGWINCH` / `SIGTERM` に注意**:
+   - 最小コードの `make([]byte, 3)` は `Shift+矢印`（`\x1b[1;2A`: 6バイト）や 4 バイト絵文字・貼り付け入力を取りこぼすため、実運用では大きめのバッファ＋シーケンス切り出しパーサにします。また `os/signal` で `syscall.SIGTERM` 時の `term.Restore` や `syscall.SIGWINCH` によるリサイズ検知を追加すると堅牢です。

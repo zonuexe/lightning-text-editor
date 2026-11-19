@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -47,60 +51,87 @@ func runeWidth(r rune) int {
 	return 1
 }
 
-func probeEaw() bool {
-	os.Stdout.WriteString("\x1b[1;1H\x1b[2Kα\x1b[6n")
-	ch := make(chan []byte, 1)
-	go func() {
-		buf := make([]byte, 32)
-		n, err := os.Stdin.Read(buf)
-		if err == nil && n > 0 {
-			ch <- buf[:n]
-		} else {
-			ch <- nil
-		}
-	}()
+var cprRegex = regexp.MustCompile("\x1b\\[(\\d+);(\\d+)R")
+
+func probeEaw(stdinCh <-chan []byte, pending *[]byte) bool {
+	os.Stdout.WriteString("\x1b7\x1b[1;1H\x1b[2K\x1b[8mα\x1b[6n\x1b[0m")
+	os.Stdout.Sync()
 
 	var resp []byte
-	select {
-	case resp = <-ch:
-	case <-time.After(100 * time.Millisecond):
-	}
+	deadline := time.NewTimer(100 * time.Millisecond)
+	defer deadline.Stop()
 
-	os.Stdout.WriteString("\x1b[1;1H\x1b[2K")
-	if resp != nil {
-		str := string(resp)
-		if idx := strings.Index(str, ";"); idx != -1 {
-			if end := strings.Index(str[idx:], "R"); end != -1 {
-				colStr := str[idx+1 : idx+end]
+probeLoop:
+	for {
+		select {
+		case chunk, ok := <-stdinCh:
+			if !ok {
+				break probeLoop
+			}
+			resp = append(resp, chunk...)
+			if loc := cprRegex.FindSubmatchIndex(resp); loc != nil {
+				colStr := string(resp[loc[4]:loc[5]])
+				*pending = append(*pending, resp[:loc[0]]...)
+				*pending = append(*pending, resp[loc[1]:]...)
+				os.Stdout.WriteString("\x1b[1;1H\x1b[2K\x1b8")
+				os.Stdout.Sync()
 				if col, err := strconv.Atoi(colStr); err == nil {
 					return col == 3
 				}
+				return true
 			}
+		case <-deadline.C:
+			break probeLoop
 		}
 	}
+
+	if len(resp) > 0 {
+		*pending = append(*pending, resp...)
+	}
+	os.Stdout.WriteString("\x1b[1;1H\x1b[2K\x1b8")
+	os.Stdout.Sync()
 	return true
 }
 
-func stringWidth(s string) int {
-	w := 0
+func sanitizeAndMeasure(s string, maxW int, tabWidth int) (string, int) {
+	col := 0
+	var sb strings.Builder
 	for _, r := range s {
-		w += runeWidth(r)
+		var w int
+		var disp string
+		if r == '\t' {
+			w = tabWidth - (col % tabWidth)
+			disp = strings.Repeat(" ", w)
+		} else if r < 0x20 {
+			w = 2
+			disp = "^" + string(rune(r+64))
+		} else if r == 0x7f {
+			w = 2
+			disp = "^?"
+		} else if r >= 0x80 && r < 0xa0 {
+			w = 1
+			disp = "?"
+		} else {
+			w = runeWidth(r)
+			disp = string(r)
+		}
+		if maxW >= 0 && col+w > maxW {
+			break
+		}
+		sb.WriteString(disp)
+		col += w
 	}
+	return sb.String(), col
+}
+
+func stringWidth(s string) int {
+	_, w := sanitizeAndMeasure(s, -1, 4)
 	return w
 }
 
 func truncateToWidth(s string, maxW int) string {
-	curW := 0
-	var sb strings.Builder
-	for _, r := range s {
-		rw := runeWidth(r)
-		if curW+rw > maxW {
-			break
-		}
-		sb.WriteRune(r)
-		curW += rw
-	}
-	return sb.String()
+	out, _ := sanitizeAndMeasure(s, maxW, 4)
+	return out
 }
 
 // --- 1. モード定義 ---
@@ -344,7 +375,7 @@ func (ed *Editor) Render() {
 	ed.Scroll(screenRows)
 
 	var sb strings.Builder
-	sb.WriteString("\x1b[?25l") // カーソル隠す
+	sb.WriteString("\x1b[?2026h\x1b[?25l") // 同期描画開始 & カーソル隠す
 
 	// 1. バッファタブバーの描画 (Row 1)
 	sb.WriteString("\x1b[1;1H\x1b[7m")
@@ -367,6 +398,10 @@ func (ed *Editor) Render() {
 	sb.WriteString("\x1b[0m\x1b[K")
 
 	// 2. 本文テキストの描画 (Row 2 .. screenRows+1)
+	textCols := cols - LineNumWidth - 1
+	if textCols < 1 {
+		textCols = 1
+	}
 	for i := 0; i < screenRows; i++ {
 		fileRow := buf.RowOffset + i
 		sb.WriteString(fmt.Sprintf("\x1b[%d;1H", i+2))
@@ -374,7 +409,7 @@ func (ed *Editor) Render() {
 		if fileRow < len(buf.Lines) {
 			lineNum := fmt.Sprintf("%3d ", fileRow+1)
 			sb.WriteString("\x1b[90m" + lineNum + "\x1b[0m")
-			sb.WriteString(buf.Lines[fileRow])
+			sb.WriteString(truncateToWidth(buf.Lines[fileRow], textCols))
 			sb.WriteString("\x1b[K")
 		} else {
 			sb.WriteString("\x1b[90m  ~ \x1b[0m\x1b[K")
@@ -421,16 +456,19 @@ func (ed *Editor) Render() {
 	// 4. 最下行（コマンドライン / メッセージエリア） (Row rows)
 	sb.WriteString(fmt.Sprintf("\x1b[%d;1H", rows))
 	if ed.Mode == ModeCommand {
-		sb.WriteString(":" + ed.CommandLine + "\x1b[K")
+		sb.WriteString(truncateToWidth(":"+ed.CommandLine, maxBarW) + "\x1b[K")
 	} else if ed.StatusMessage != "" {
-		sb.WriteString("\x1b[36m" + ed.StatusMessage + "\x1b[0m\x1b[K")
+		sb.WriteString("\x1b[36m" + truncateToWidth(ed.StatusMessage, maxBarW) + "\x1b[0m\x1b[K")
 	} else {
-		sb.WriteString("\x1b[90mCtrl+N/P: バッファ切替 | :w: 保存 | :q: 終了 | i: 挿入モード\x1b[0m\x1b[K")
+		sb.WriteString("\x1b[90m" + truncateToWidth("Ctrl+N/P: バッファ切替 | :w: 保存 | :q: 終了 | i: 挿入モード", maxBarW) + "\x1b[0m\x1b[K")
 	}
 
 	// 5. カーソル位置の設定
 	if ed.Mode == ModeCommand {
 		cmdCursorX := 2 + stringWidth(ed.CommandLine)
+		if cmdCursorX > cols {
+			cmdCursorX = cols
+		}
 		sb.WriteString(fmt.Sprintf("\x1b[%d;%dH", rows, cmdCursorX))
 	} else {
 		screenY := buf.CursorY - buf.RowOffset + 2 // タブバー(1行) + 1-indexed
@@ -440,10 +478,13 @@ func (ed *Editor) Render() {
 			visualX = stringWidth(string(runes[:buf.CursorX]))
 		}
 		screenX := visualX + LineNumWidth + 1
+		if screenX > cols {
+			screenX = cols
+		}
 		sb.WriteString(fmt.Sprintf("\x1b[%d;%dH", screenY, screenX))
 	}
 
-	sb.WriteString("\x1b[?25h") // カーソル表示
+	sb.WriteString("\x1b[?25h\x1b[?2026l") // カーソル表示 & 同期描画終了
 	os.Stdout.WriteString(sb.String())
 }
 
@@ -705,7 +746,156 @@ func (ed *Editor) UpdateTitle() {
 }
 
 // --- 7. メインループ ---
+func drainStreamTokens(pending *[]byte, inPaste *bool, flushEsc bool) []string {
+	var tokens []string
+	buf := *pending
+	i := 0
+	for i < len(buf) {
+		if *inPaste {
+			endIdx := bytes.Index(buf[i:], []byte("\x1b[201~"))
+			if endIdx == -1 {
+				safe := len(buf) - i - 5
+				if safe > 0 {
+					k := safe - 1
+					for k > 0 && safe-k < utf8.UTFMax && (buf[i+k]&0xC0) == 0x80 {
+						k--
+					}
+					if !utf8.FullRune(buf[i+k : i+safe]) {
+						safe = k
+					}
+				}
+				if safe > 0 && buf[i+safe-1] == '\r' {
+					safe--
+				}
+				if safe > 0 {
+					tokens = append(tokens, "PASTE:"+string(buf[i:i+safe]))
+					i += safe
+				}
+				break
+			}
+			if endIdx > 0 {
+				tokens = append(tokens, "PASTE:"+string(buf[i:i+endIdx]))
+			}
+			i += endIdx + 6
+			*inPaste = false
+			continue
+		}
+
+		if buf[i] == 0x1b {
+			if i+1 >= len(buf) {
+				if flushEsc {
+					tokens = append(tokens, "\x1b")
+					i++
+				}
+				break
+			}
+			if buf[i+1] == '[' {
+				j := i + 2
+				found := false
+				for j < len(buf) {
+					if buf[j] >= 0x40 && buf[j] <= 0x7e {
+						found = true
+						break
+					}
+					j++
+				}
+				if !found {
+					break
+				}
+				seq := string(buf[i : j+1])
+				if seq == "\x1b[200~" {
+					*inPaste = true
+				} else {
+					tokens = append(tokens, seq)
+				}
+				i = j + 1
+				continue
+			} else if buf[i+1] == 'O' {
+				if i+2 >= len(buf) {
+					break
+				}
+				switch buf[i+2] {
+				case 'A':
+					tokens = append(tokens, "\x1b[A")
+				case 'B':
+					tokens = append(tokens, "\x1b[B")
+				case 'C':
+					tokens = append(tokens, "\x1b[C")
+				case 'D':
+					tokens = append(tokens, "\x1b[D")
+				case 'H':
+					tokens = append(tokens, "\x1b[H")
+				case 'F':
+					tokens = append(tokens, "\x1b[F")
+				default:
+					tokens = append(tokens, string(buf[i:i+3]))
+				}
+				i += 3
+				continue
+			} else {
+				tokens = append(tokens, string(buf[i:i+2]))
+				i += 2
+				continue
+			}
+		}
+
+		if !utf8.FullRune(buf[i:]) {
+			if len(buf)-i < utf8.UTFMax {
+				break
+			}
+		}
+		r, sz := utf8.DecodeRune(buf[i:])
+		if sz == 0 {
+			break
+		}
+		tokens = append(tokens, string(r))
+		i += sz
+	}
+	*pending = append((*pending)[:0], buf[i:]...)
+	return tokens
+}
+
+func (ed *Editor) InsertPastedText(pasted string) {
+	pasted = strings.ReplaceAll(pasted, "\r\n", "\n")
+	pasted = strings.ReplaceAll(pasted, "\r", "\n")
+
+	if ed.Mode == ModeCommand {
+		firstLine := strings.SplitN(pasted, "\n", 2)[0]
+		var sb strings.Builder
+		for _, ch := range firstLine {
+			if ch == '\t' {
+				sb.WriteRune(' ')
+			} else if ch >= ' ' && ch != 0x7f && !(ch >= 0x80 && ch < 0xa0) {
+				sb.WriteRune(ch)
+			}
+		}
+		ed.CommandLine += sb.String()
+		return
+	}
+
+	for _, ch := range pasted {
+		if ch == '\n' {
+			ed.InsertNewline()
+		} else {
+			ed.InsertRune(ch)
+		}
+	}
+
+	if ed.Mode == ModeNormal {
+		cur := ed.CurrentBuffer()
+		runes := cur.RunesAt(cur.CursorY)
+		if len(runes) > 0 && cur.CursorX >= len(runes) {
+			cur.CursorX = len(runes) - 1
+		}
+	}
+}
+
 func (ed *Editor) Run() {
+	if !term.IsTerminal(ed.Fd) {
+		fmt.Fprintln(os.Stderr, "エラー: inzm は対話型ターミナル (TTY) で実行してください。")
+		return
+	}
+
 	oldState, err := term.MakeRaw(ed.Fd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "MakeRaw error: %v\n", err)
@@ -714,28 +904,94 @@ func (ed *Editor) Run() {
 	ed.OldState = oldState
 	defer func() {
 		ed.SetTitle("")
-		// 代替画面から通常画面に戻してカーソル復帰
-		os.Stdout.WriteString("\x1b[?1049l\x1b[?25h")
+		// Bracketed Paste 解除 & 代替画面から通常画面に戻してカーソル復帰
+		os.Stdout.WriteString("\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m")
+		os.Stdout.Sync()
 		term.Restore(ed.Fd, ed.OldState)
 	}()
 
-	// 代替画面バッファに入る
-	os.Stdout.WriteString("\x1b[?1049h\x1b[2J\x1b[H")
-	isEaw = probeEaw()
+	sigCh := make(chan os.Signal, 8)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGWINCH)
+	defer signal.Stop(sigCh)
+
+	stdinCh := make(chan []byte, 16)
+	go func() {
+		buf := make([]byte, 256)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil || n == 0 {
+				close(stdinCh)
+				return
+			}
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			stdinCh <- chunk
+		}
+	}()
+
+	// 代替画面バッファ & Bracketed Paste 有効化
+	os.Stdout.WriteString("\x1b[?1049h\x1b[?2004h\x1b[2J\x1b[H")
+	os.Stdout.Sync()
+	var pending []byte
+	isEaw = probeEaw(stdinCh, &pending)
 	ed.UpdateTitle()
 	ed.Render()
 
-	buf := make([]byte, 64)
-	for ed.Running {
-		n, err := os.Stdin.Read(buf)
-		if err != nil || n == 0 {
-			break
-		}
+	inPaste := false
+	var escTimer *time.Timer
+	var escC <-chan time.Time
 
-		input := string(buf[:n])
-		ed.HandleInput(input)
+	dispatchTokens := func(tokens []string) {
+		for _, tok := range tokens {
+			if strings.HasPrefix(tok, "PASTE:") {
+				ed.InsertPastedText(strings.TrimPrefix(tok, "PASTE:"))
+			} else {
+				ed.HandleInput(tok)
+			}
+			if !ed.Running {
+				break
+			}
+		}
 		if ed.Running {
 			ed.Render()
+		}
+	}
+
+	if len(pending) > 0 {
+		if tokens := drainStreamTokens(&pending, &inPaste, false); len(tokens) > 0 {
+			dispatchTokens(tokens)
+		}
+	}
+
+	for ed.Running {
+		if len(pending) == 1 && pending[0] == 0x1b && !inPaste && escTimer == nil {
+			escTimer = time.NewTimer(40 * time.Millisecond)
+			escC = escTimer.C
+		}
+
+		select {
+		case sig := <-sigCh:
+			if sig == syscall.SIGWINCH {
+				ed.Render()
+			} else {
+				ed.Running = false
+			}
+		case chunk, ok := <-stdinCh:
+			if escTimer != nil {
+				escTimer.Stop()
+				escTimer = nil
+				escC = nil
+			}
+			if !ok {
+				ed.Running = false
+				break
+			}
+			pending = append(pending, chunk...)
+			dispatchTokens(drainStreamTokens(&pending, &inPaste, false))
+		case <-escC:
+			escTimer = nil
+			escC = nil
+			dispatchTokens(drainStreamTokens(&pending, &inPaste, true))
 		}
 	}
 }
@@ -886,6 +1142,14 @@ func (ed *Editor) HandleInput(input string) {
 			if curBuf.CursorX > 0 {
 				curBuf.CursorX--
 			}
+			return
+		}
+		if len(input) == 2 && input[0] == 0x1b {
+			ed.Mode = ModeNormal
+			if curBuf.CursorX > 0 {
+				curBuf.CursorX--
+			}
+			ed.HandleInput(input[1:])
 			return
 		}
 

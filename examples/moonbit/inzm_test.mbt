@@ -157,3 +157,67 @@ test "range selection via shift arrows, mouse drag, select all, and replace" {
   let _ = ed.feed_str("\u{1B}[97;9uX")
   assert_eq(ed.content(), "X\n")
 }
+
+///|
+test "bracketed paste preserves literal tab, newlines, and suppresses shortcuts" {
+  let ed = @inzm.Editor::new(
+    cols=80,
+    rows=24,
+    filename="paste.txt",
+    content="",
+  )
+  // Paste containing literal tab, CRLF, Ctrl+Q (\x11), Ctrl+K (\x0B), Backspace (\x7F),
+  // split end marker "\x1b[201" + "~"
+  let _ = ed.feed_str("\u{1B}[200~a\tb\r\nc\u{11}\u{0B}\u{7F}d\u{1B}[201")
+  assert_eq(ed.should_quit(), false)
+  let _ = ed.feed_str("~")
+  assert_eq(ed.content(), "a\tb\nc\u{11}\u{0B}\u{7F}d\n")
+  // After paste ends, Tab inserts two spaces and Ctrl+Q triggers quit guard
+  let _ = ed.feed_str("\t!")
+  assert_eq(ed.content(), "a\tb\nc\u{11}\u{0B}\u{7F}d  !\n")
+  let _ = ed.feed_str("\u{11}")
+  assert_eq(ed.should_quit(), false)
+  let _ = ed.feed_str("\u{11}")
+  assert_eq(ed.should_quit(), true)
+}
+
+///|
+test "tab and control char sanitization in badge, click, and status bar" {
+  // Tab at col 0 -> U+0009 (4c); after 'a' -> U+0009 (3c); C0 \x01 -> U+0001 (2c)
+  let ed = @inzm.Editor::new(
+    cols=80,
+    rows=24,
+    filename="bad\u{1B}[31m\u{07}\tname.txt",
+    content="\tX\na\tY\n\u{01}Z",
+  )
+  let f0 = ed.render()
+  assert_true(f0.contains("U+0009 (4c)"))
+  assert_eq(f0.contains("\u{1B}[31m"), false)
+  assert_eq(f0.contains("\u{07}"), false)
+  assert_true(f0.contains("bad^[[31m^G"))
+  // Move to line 2 col 1 ('\t' after 'a' -> 3c)
+  let f1 = ed.feed_str("\u{1B}[B\u{1B}[C")
+  assert_true(f1.contains("U+0009 (3c)"))
+  // Move to line 3 col 0 ('\x01' -> 2c)
+  let f2 = ed.feed_str("\u{1B}[B\u{1B}[H")
+  assert_true(f2.contains("U+0001 (2c)"))
+  // Click at row 1 col 9 (gutter=4 + tab(4) = 8, 1-based col 9 -> 'X')
+  let _ = ed.feed_str("\u{1B}[<0;9;1M!")
+  assert_eq(ed.content(), "\t!X\na\tY\n\u{01}Z\n")
+  // Click at row 3 col 7 (gutter=4 + ^A(2) = 6, 1-based col 7 -> 'Z')
+  let _ = ed.feed_str("\u{1B}[<0;7;3M@")
+  assert_eq(ed.content(), "\t!X\na\tY\n\u{01}@Z\n")
+  // Narrow terminal status bar sanitizes and truncates to <= cols - 1 without raw ESC
+  let narrow = @inzm.Editor::new(
+    cols=24,
+    rows=6,
+    filename="x\u{1B}[31my",
+    content="012345678901234567890123456789",
+  )
+  narrow.set_status("msg\u{1B}[32m\t01234567890123456789")
+  let nf = narrow.render()
+  assert_eq(nf.contains("\u{1B}[31m"), false)
+  assert_eq(nf.contains("\u{1B}[32m"), false)
+  // Line 1 body should stop at text_cols = 24 - 4 - 1 = 19 chars (no '9' at index 19)
+  assert_true(nf.contains("0123456789012345678\u{1B}[K"))
+}

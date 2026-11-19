@@ -25,6 +25,9 @@ public class Inzm {
     // =========================================================================
     static boolean isEaw = true;
 
+    static final ArrayDeque<Integer> pendingInput = new ArrayDeque<>();
+    static String origStty = null;
+
     static int getCharWidth(int code) {
         if ((code >= 0x1100 && code <= 0x115F) ||
             (code >= 0x2E80 && code <= 0xA4CF) ||
@@ -51,35 +54,98 @@ public class Inzm {
         return 1;
     }
 
-    static int getStringWidth(String s) {
-        int w = 0;
-        int i = 0;
-        while (i < s.length()) {
-            int cp = s.codePointAt(i);
-            w += getCharWidth(cp);
-            i += Character.charCount(cp);
-        }
-        return w;
-    }
-
-    static String truncateToWidth(String s, int maxW) {
+    static String sanitizeAndTruncate(String s, int maxW, int tabWidth) {
         StringBuilder sb = new StringBuilder();
-        int curW = 0;
+        int col = 0;
         int i = 0;
         while (i < s.length()) {
             int cp = s.codePointAt(i);
-            int w = getCharWidth(cp);
-            if (curW + w > maxW) break;
-            sb.appendCodePoint(cp);
-            curW += w;
+            int w;
+            String disp;
+            if (cp == '\t') {
+                w = tabWidth - (col % tabWidth);
+                disp = " ".repeat(w);
+            } else if (cp < 0x20) {
+                w = 2;
+                disp = "^" + (char) (cp + 64);
+            } else if (cp == 0x7F) {
+                w = 2;
+                disp = "^?";
+            } else if (cp >= 0x80 && cp < 0xA0) {
+                w = 1;
+                disp = "?";
+            } else {
+                w = getCharWidth(cp);
+                disp = new String(Character.toChars(cp));
+            }
+            if (maxW >= 0 && col + w > maxW) break;
+            sb.append(disp);
+            col += w;
             i += Character.charCount(cp);
         }
         return sb.toString();
     }
 
+    static int getStringWidth(String s) {
+        int col = 0;
+        int i = 0;
+        while (i < s.length()) {
+            int cp = s.codePointAt(i);
+            int w;
+            if (cp == '\t') {
+                w = 4 - (col % 4);
+            } else if (cp < 0x20 || cp == 0x7F) {
+                w = 2;
+            } else if (cp >= 0x80 && cp < 0xA0) {
+                w = 1;
+            } else {
+                w = getCharWidth(cp);
+            }
+            col += w;
+            i += Character.charCount(cp);
+        }
+        return col;
+    }
+
+    static String truncateToWidth(String s, int maxW) {
+        return sanitizeAndTruncate(s, maxW, 4);
+    }
+
+    static String truncateAnsiToWidth(String ansiStr, int maxW) {
+        StringBuilder sb = new StringBuilder();
+        int col = 0;
+        int i = 0;
+        while (i < ansiStr.length()) {
+            if (ansiStr.charAt(i) == '\033' && i + 1 < ansiStr.length() && ansiStr.charAt(i + 1) == '[') {
+                int j = i + 2;
+                while (j < ansiStr.length()) {
+                    char ch = ansiStr.charAt(j++);
+                    if (ch >= 0x40 && ch <= 0x7E) break;
+                }
+                sb.append(ansiStr, i, j);
+                i = j;
+                continue;
+            }
+            int cp = ansiStr.codePointAt(i);
+            int w = getCharWidth(cp);
+            if (col + w > maxW) break;
+            sb.appendCodePoint(cp);
+            col += w;
+            i += Character.charCount(cp);
+        }
+        return sb.toString();
+    }
+
+    static int readRawByte() throws IOException {
+        if (!pendingInput.isEmpty()) {
+            return pendingInput.pollFirst();
+        }
+        return System.in.read();
+    }
+
     static boolean probeEaw() {
         try {
-            System.out.print("\033[1;1H\033[2Kα\033[6n");
+            System.out.print("\0337\033[1;1H\033[2K\033[8mα\033[6n\033[0m");
             System.out.flush();
 
             StringBuilder resp = new StringBuilder();
@@ -89,19 +155,25 @@ public class Inzm {
                     int c = System.in.read();
                     if (c == -1) break;
                     resp.append((char) c);
-                    if (c == 'R') break;
+                    Matcher m = Pattern.compile("\\033\\[(\\d+);(\\d+)R").matcher(resp.toString());
+                    if (m.find()) {
+                        String rest = resp.substring(0, m.start()) + resp.substring(m.end());
+                        for (int idx = 0; idx < rest.length(); idx++) {
+                            pendingInput.addLast((int) rest.charAt(idx));
+                        }
+                        System.out.print("\033[1;1H\033[2K\0338");
+                        System.out.flush();
+                        return Integer.parseInt(m.group(2)) == 3;
+                    }
                 } else {
                     Thread.sleep(5);
                 }
             }
-            System.out.print("\033[1;1H\033[2K");
-            System.out.flush();
-
-            Matcher m = Pattern.compile("\\[\\d+;(\\d+)R").matcher(resp.toString());
-            if (m.find()) {
-                int col = Integer.parseInt(m.group(1));
-                return col == 3;
+            for (int idx = 0; idx < resp.length(); idx++) {
+                pendingInput.addLast((int) resp.charAt(idx));
             }
+            System.out.print("\033[1;1H\033[2K\0338");
+            System.out.flush();
         } catch (Exception ignored) {}
         return true;
     }
@@ -197,7 +269,7 @@ public class Inzm {
 
         public String highlightLine(String line) {
             if (tokenMaker == null || line.isEmpty()) {
-                return line;
+                return sanitizeAndTruncate(line, -1, 4);
             }
 
             char[] chars = line.toCharArray();
@@ -205,9 +277,34 @@ public class Inzm {
             Token token = tokenMaker.getTokenList(segment, TokenTypes.NULL, 0);
 
             StringBuilder sb = new StringBuilder();
+            int col = 0;
             while (token != null && token.isPaintable()) {
                 String color = tokenToAnsi(token.getType());
-                sb.append(color).append(token.getLexeme()).append("\033[0m");
+                String lex = token.getLexeme();
+                StringBuilder safeLex = new StringBuilder();
+                int idx = 0;
+                while (idx < lex.length()) {
+                    int cp = lex.codePointAt(idx);
+                    if (cp == '\t') {
+                        int w = 4 - (col % 4);
+                        safeLex.append(" ".repeat(w));
+                        col += w;
+                    } else if (cp < 0x20) {
+                        safeLex.append('^').append((char) (cp + 64));
+                        col += 2;
+                    } else if (cp == 0x7F) {
+                        safeLex.append("^?");
+                        col += 2;
+                    } else if (cp >= 0x80 && cp < 0xA0) {
+                        safeLex.append('?');
+                        col += 1;
+                    } else {
+                        safeLex.appendCodePoint(cp);
+                        col += getCharWidth(cp);
+                    }
+                    idx += Character.charCount(cp);
+                }
+                sb.append(color).append(safeLex).append("\033[0m");
                 token = token.getNextToken();
             }
             return sb.toString();
@@ -775,21 +872,54 @@ public class Inzm {
 
         String promptInput(String promptText) {
             int rows = getTerminalRows();
+            int cols = getTerminalCols();
+            int maxW = Math.max(1, cols - 1);
             StringBuilder buf = new StringBuilder();
             while (true) {
-                System.out.printf("\033[%d;1H\033[7m %s%s \033[0m\033[K", rows, promptText, buf);
+                if (needsResize) {
+                    needsResize = false;
+                    updateWindowSize();
+                    rows = getTerminalRows();
+                    cols = getTerminalCols();
+                    maxW = Math.max(1, cols - 1);
+                }
+                String bar = truncateToWidth(" " + promptText + buf + " ", maxW);
+                System.out.printf("\033[%d;1H\033[7m%s\033[0m\033[K", rows, bar);
                 System.out.flush();
 
                 String key = readKeySequence();
+                if (key == null) {
+                    running = false;
+                    return null;
+                }
+                if (key.equals("\033[200~")) {
+                    String pasted = readBracketedPaste().replace("\r\n", "\n").replace('\r', '\n');
+                    int nl = pasted.indexOf('\n');
+                    String single = (nl >= 0) ? pasted.substring(0, nl) : pasted;
+                    for (int i = 0; i < single.length(); ) {
+                        int cp = single.codePointAt(i);
+                        if (cp >= 0x20 && cp != 0x7F && !(cp >= 0x80 && cp < 0xA0)) {
+                            buf.appendCodePoint(cp);
+                        }
+                        i += Character.charCount(cp);
+                    }
+                    continue;
+                }
                 if (key.equals("\r") || key.equals("\n")) {
                     return buf.toString();
                 } else if (key.equals("\u0007") || key.equals("\033") || key.equals("\u0003")) {
                     statusMessage = "Quit";
                     return null;
                 } else if (key.equals("\u007F") || key.equals("\u0008")) {
-                    if (buf.length() > 0) buf.deleteCharAt(buf.length() - 1);
+                    if (buf.length() > 0) {
+                        int cp = buf.codePointBefore(buf.length());
+                        buf.delete(buf.length() - Character.charCount(cp), buf.length());
+                    }
                 } else if (!key.startsWith("\033") && !key.isEmpty()) {
-                    buf.append(key);
+                    int cp = key.codePointAt(0);
+                    if (cp >= 0x20 && cp != 0x7F && !(cp >= 0x80 && cp < 0xA0)) {
+                        buf.append(key);
+                    }
                 }
             }
         }
@@ -839,9 +969,10 @@ public class Inzm {
             setTitle("inzm (Gosmacs) - " + filename + (isModified ? "*" : ""));
 
             StringBuilder out = new StringBuilder();
-            out.append("\033[?25l");
+            out.append("\033[?2026h\033[?25l");
 
             // 1. 本文テキストエリア (キャッシュされた RSyntaxTextArea ハイライト行を出力！)
+            int textCols = Math.max(1, cols - 5);
             for (int i = 0; i < screenRows; i++) {
                 int fileRow = rowOffset + i;
                 out.append(String.format("\033[%d;1H", i + 1));
@@ -849,9 +980,11 @@ public class Inzm {
                 if (fileRow < lines.size()) {
                     String lineNum = String.format("%3d ", fileRow + 1);
                     out.append("\033[90m").append(lineNum).append("\033[0m");
-                    String text = (fileRow < highlightedLines.size()) ? highlightedLines.get(fileRow) : lines.get(fileRow);
+                    String text = (fileRow < highlightedLines.size())
+                            ? truncateAnsiToWidth(highlightedLines.get(fileRow), textCols)
+                            : truncateToWidth(lines.get(fileRow), textCols);
                     out.append(text);
-                    out.append("\033[K");
+                    out.append("\033[0m\033[K");
                 } else {
                     out.append("\033[90m  ~ \033[0m\033[K");
                 }
@@ -879,20 +1012,21 @@ public class Inzm {
             String line = currentLine();
             String before = line.substring(0, Math.min(cursorX, line.length()));
             int visualX = getStringWidth(before);
-            int screenX = visualX + 5;
+            int screenX = Math.min(cols, visualX + 5);
 
-            out.append(String.format("\033[%d;%dH\033[?25h", screenY, screenX));
+            out.append(String.format("\033[%d;%dH\033[?25h\033[?2026l", screenY, screenX));
 
             System.out.print(out);
             System.out.flush();
         }
 
         private final java.util.concurrent.atomic.AtomicBoolean cleanedUp = new java.util.concurrent.atomic.AtomicBoolean(false);
+        volatile boolean needsResize = false;
 
         void cleanup() {
             if (cleanedUp.compareAndSet(false, true)) {
                 setTitle("");
-                System.out.print("\033[?1049l\033[?25h");
+                System.out.print("\033[?2004l\033[?1049l\033[?25h\033[0m");
                 System.out.flush();
                 setRawMode(false);
             }
@@ -902,25 +1036,25 @@ public class Inzm {
         // 4. メインループ & 入力処理
         // =====================================================================
         void run() {
+            if (!isTty()) {
+                System.err.println("エラー: inzm は対話型ターミナル (TTY) で実行してください。");
+                System.exit(1);
+            }
+
             // JVM強制終了（Ctrl+C等）時にも確実に cleanup() を呼ぶ保険
             Runtime.getRuntime().addShutdownHook(new Thread(this::cleanup));
 
             setRawMode(true);
-            System.out.print("\033[?1049h\033[2J\033[H");
+            System.out.print("\033[?1049h\033[?2004h\033[2J\033[H");
             System.out.flush();
 
             try {
                 isEaw = probeEaw();
                 updateWindowSize();
 
-                // 端末ウィンドウリサイズ (SIGWINCH) をリアルタイム検知
+                // 端末ウィンドウリサイズ (SIGWINCH) を安全に検知
                 try {
-                    sun.misc.Signal.handle(new sun.misc.Signal("WINCH"), sig -> {
-                        updateWindowSize();
-                        if (running) {
-                            render();
-                        }
-                    });
+                    sun.misc.Signal.handle(new sun.misc.Signal("WINCH"), sig -> needsResize = true);
                 } catch (Throwable t) {
                     // 非Unix環境やシグナル未サポート環境のフォールバック
                 }
@@ -928,8 +1062,33 @@ public class Inzm {
                 render();
 
                 while (running) {
+                    if (needsResize) {
+                        needsResize = false;
+                        updateWindowSize();
+                        render();
+                    }
                     String key = readKeySequence();
+                    if (needsResize) {
+                        needsResize = false;
+                        updateWindowSize();
+                        render();
+                    }
+                    if (key == null) {
+                        running = false;
+                        break;
+                    }
                     if (key.isEmpty()) continue;
+
+                    if (key.equals("\033[200~")) {
+                        String pasted = readBracketedPaste().replace("\r\n", "\n").replace('\r', '\n');
+                        String[] pasteLines = pasted.split("\n", -1);
+                        for (int idx = 0; idx < pasteLines.length; idx++) {
+                            if (idx > 0) insertNewline();
+                            if (!pasteLines[idx].isEmpty()) insertString(pasteLines[idx]);
+                        }
+                        if (running) render();
+                        continue;
+                    }
 
                     if (!statusMessage.startsWith("=>") && !statusMessage.startsWith("MLisp error") && !statusMessage.startsWith("Quit")) {
                         statusMessage = "";
@@ -943,35 +1102,79 @@ public class Inzm {
             }
         }
 
+    String readBracketedPaste() {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] endMarker = "\033[201~".getBytes(StandardCharsets.US_ASCII);
+        try {
+            while (true) {
+                int c = readRawByte();
+                if (c == -1) break;
+                baos.write(c);
+                if (c == '~' && baos.size() >= endMarker.length) {
+                    byte[] cur = baos.toByteArray();
+                    int offset = cur.length - endMarker.length;
+                    if (Arrays.equals(cur, offset, cur.length, endMarker, 0, endMarker.length)) {
+                        return new String(cur, 0, offset, StandardCharsets.UTF_8);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return baos.toString(StandardCharsets.UTF_8);
+    }
+
     String readKeySequence() {
         try {
-            int c = System.in.read();
-            if (c == -1) return "";
+            int c = readRawByte();
+            if (c == -1) return null;
 
             if (c == 0x1B) { // ESC
-                // 続くバイトの到着を最大40ms待機
-                long start = System.currentTimeMillis();
-                while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 40) {
-                    Thread.sleep(2);
+                if (pendingInput.isEmpty()) {
+                    long start = System.currentTimeMillis();
+                    while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 40) {
+                        Thread.sleep(2);
+                    }
                 }
-                if (System.in.available() == 0) {
+                if (pendingInput.isEmpty() && System.in.available() == 0) {
                     return "\033"; // 単独の Esc
                 }
 
-                int c2 = System.in.read();
+                int c2 = readRawByte();
+                if (c2 == -1) return null;
                 if (c2 == '[') {
                     StringBuilder seq = new StringBuilder("\033[");
-                    start = System.currentTimeMillis();
+                    long start = System.currentTimeMillis();
                     while (System.currentTimeMillis() - start < 40) {
-                        if (System.in.available() > 0) {
-                            int next = System.in.read();
+                        if (!pendingInput.isEmpty() || System.in.available() > 0) {
+                            int next = readRawByte();
+                            if (next == -1) break;
                             seq.append((char) next);
-                            if (Character.isLetter(next) || next == '~') break;
+                            if (next >= 0x40 && next <= 0x7E) break;
                         } else {
                             Thread.sleep(2);
                         }
                     }
                     return seq.toString();
+                } else if (c2 == 'O') {
+                    if (pendingInput.isEmpty()) {
+                        long start = System.currentTimeMillis();
+                        while (System.in.available() == 0 && (System.currentTimeMillis() - start) < 40) {
+                            Thread.sleep(2);
+                        }
+                    }
+                    if (pendingInput.isEmpty() && System.in.available() == 0) {
+                        return "\033O";
+                    }
+                    int c3 = readRawByte();
+                    if (c3 == -1) return "\033O";
+                    return switch (c3) {
+                        case 'A' -> "\033[A";
+                        case 'B' -> "\033[B";
+                        case 'C' -> "\033[C";
+                        case 'D' -> "\033[D";
+                        case 'H' -> "\033[H";
+                        case 'F' -> "\033[F";
+                        default -> "\033O" + (char) c3;
+                    };
                 } else {
                     return "\033" + (char) c2; // Meta キー (M-:, M-v 等)
                 }
@@ -986,7 +1189,9 @@ public class Inzm {
             byte[] buf = new byte[bytes];
             buf[0] = (byte) c;
             for (int i = 1; i < bytes; i++) {
-                buf[i] = (byte) System.in.read();
+                int b = readRawByte();
+                if (b == -1) return null;
+                buf[i] = (byte) b;
             }
             return new String(buf, StandardCharsets.UTF_8);
         } catch (Exception e) {
@@ -1043,13 +1248,36 @@ public class Inzm {
     // =========================================================================
     // 5. ターミナル生モード制御ヘルパー (/dev/tty 直接制御)
     // =========================================================================
+    static boolean isTty() {
+        try {
+            int rc = new ProcessBuilder("test", "-t", "0")
+                    .redirectInput(ProcessBuilder.Redirect.INHERIT)
+                    .start()
+                    .waitFor();
+            return rc == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     static void setRawMode(boolean enable) {
-        String cmd = enable ? "stty -icanon -echo < /dev/tty" : "stty sane < /dev/tty";
+        if (enable && origStty == null) {
+            try {
+                String saved = executeCommand("stty -g < /dev/tty 2>/dev/null || stty -g 2>/dev/null");
+                if (!saved.isEmpty()) origStty = saved;
+            } catch (Exception ignored) {}
+        }
+        String restoreCmd = (origStty != null)
+                ? "stty '" + origStty.replace("'", "'\\''") + "'"
+                : "stty sane";
+        String cmd = enable
+                ? "stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef < /dev/tty"
+                : restoreCmd + " < /dev/tty";
         try {
             new ProcessBuilder("sh", "-c", cmd).inheritIO().start().waitFor();
         } catch (Exception e1) {
             try {
-                String fallback = enable ? "stty -icanon -echo" : "stty sane";
+                String fallback = enable ? "stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef" : restoreCmd;
                 new ProcessBuilder("sh", "-c", fallback).inheritIO().start().waitFor();
             } catch (Exception e2) {
                 System.err.println("Failed to configure terminal raw mode: " + e2.getMessage());

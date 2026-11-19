@@ -1,4 +1,5 @@
 import process from "node:process";
+import { StringDecoder } from "node:string_decoder";
 import { createHighlighter, type Highlighter } from "shiki";
 import editorconfig from "editorconfig";
 
@@ -39,24 +40,78 @@ function getCharWidth(char: string): number {
   return 1;
 }
 
-function getStringWidth(str: string): number {
-  let width = 0;
+function getTabWidth(): number {
+  const w = Number(ecConfig?.tab_width || ecConfig?.indent_size);
+  return Number.isFinite(w) && w > 0 ? Math.floor(w) : 4;
+}
+
+function sanitizeAndMeasure(
+  str: string,
+  maxWidth = Number.POSITIVE_INFINITY,
+  tabWidth = getTabWidth()
+): { text: string; width: number } {
+  let col = 0;
+  let out = "";
   for (const ch of Array.from(str)) {
-    width += getCharWidth(ch);
+    const code = ch.codePointAt(0) ?? 0;
+    let w: number;
+    let disp: string;
+    if (ch === "\t") {
+      w = tabWidth - (col % tabWidth);
+      disp = " ".repeat(w);
+    } else if (code < 0x20) {
+      w = 2;
+      disp = "^" + String.fromCharCode(code + 64);
+    } else if (code === 0x7f) {
+      w = 2;
+      disp = "^?";
+    } else if (code >= 0x80 && code < 0xa0) {
+      w = 1;
+      disp = "?";
+    } else {
+      w = getCharWidth(ch);
+      disp = ch;
+    }
+    if (col + w > maxWidth) break;
+    out += disp;
+    col += w;
   }
-  return width;
+  return { text: out, width: col };
+}
+
+function getStringWidth(str: string): number {
+  return sanitizeAndMeasure(str).width;
 }
 
 function truncateToWidth(str: string, maxWidth: number): string {
-  let curWidth = 0;
-  let res = "";
-  for (const ch of Array.from(str)) {
+  return sanitizeAndMeasure(str, maxWidth).text;
+}
+
+function truncateAnsiToWidth(ansiStr: string, maxWidth: number): string {
+  let out = "";
+  let col = 0;
+  let i = 0;
+  while (i < ansiStr.length) {
+    if (ansiStr[i] === "\x1b" && ansiStr[i + 1] === "[") {
+      let j = i + 2;
+      while (j < ansiStr.length) {
+        const c = ansiStr.charCodeAt(j);
+        j++;
+        if (c >= 0x40 && c <= 0x7e) break;
+      }
+      out += ansiStr.slice(i, j);
+      i = j;
+      continue;
+    }
+    const cp = ansiStr.codePointAt(i) ?? 0;
+    const ch = String.fromCodePoint(cp);
     const w = getCharWidth(ch);
-    if (curWidth + w > maxWidth) break;
-    res += ch;
-    curWidth += w;
+    if (col + w > maxWidth) break;
+    out += ch;
+    col += w;
+    i += ch.length;
   }
-  return res;
+  return out;
 }
 
 // Hexカラー (#RRGGBB) を ANSI 24-bit TrueColor エスケープコードに変換
@@ -151,7 +206,7 @@ if (currentLang) {
 // バッファ全体のハイライトを更新（キャッシュ）
 function updateHighlight() {
   if (!highlighter || !currentLang) {
-    highlightedLines = [...lines];
+    highlightedLines = [];
     return;
   }
 
@@ -161,16 +216,39 @@ function updateHighlight() {
       lang: currentLang,
       theme: THEME_NAME,
     });
+    const tabW = getTabWidth();
 
     highlightedLines = tokens.map((lineTokens) => {
       let lineAnsi = "";
+      let col = 0;
       for (const tok of lineTokens) {
-        lineAnsi += `${hexToAnsi(tok.color)}${tok.content}\x1b[0m`;
+        let safeContent = "";
+        for (const ch of Array.from(tok.content)) {
+          const code = ch.codePointAt(0) ?? 0;
+          if (ch === "\t") {
+            const w = tabW - (col % tabW);
+            safeContent += " ".repeat(w);
+            col += w;
+          } else if (code < 0x20) {
+            safeContent += "^" + String.fromCharCode(code + 64);
+            col += 2;
+          } else if (code === 0x7f) {
+            safeContent += "^?";
+            col += 2;
+          } else if (code >= 0x80 && code < 0xa0) {
+            safeContent += "?";
+            col += 1;
+          } else {
+            safeContent += ch;
+            col += getCharWidth(ch);
+          }
+        }
+        lineAnsi += `${hexToAnsi(tok.color)}${safeContent}\x1b[0m`;
       }
       return lineAnsi;
     });
   } catch {
-    highlightedLines = [...lines];
+    highlightedLines = [];
   }
 }
 
@@ -210,18 +288,21 @@ function render() {
 
   let output = "";
 
-  output += "\x1b[?25l";
+  output += "\x1b[?2026h\x1b[?25l";
   output += "\x1b[H";
 
   // 1. 各行の描画（キャッシュされた Shiki ハイライト行を使用！）
+  const textCols = Math.max(1, cols - LINE_NUM_WIDTH - 1);
   for (let i = 0; i < screenRows; i++) {
     const fileRow = rowOffset + i;
     output += `\x1b[${i + 1};1H`;
 
     if (fileRow < lines.length) {
       const lineNum = (fileRow + 1).toString().padStart(3, " ");
-      const renderedText = highlightedLines[fileRow] ?? lines[fileRow];
-      output += `\x1b[90m${lineNum} \x1b[0m${renderedText}\x1b[K`;
+      const renderedText = highlightedLines[fileRow]
+        ? truncateAnsiToWidth(highlightedLines[fileRow], textCols)
+        : truncateToWidth(lines[fileRow], textCols);
+      output += `\x1b[90m${lineNum} \x1b[0m${renderedText}\x1b[0m\x1b[K`;
     } else {
       output += `\x1b[90m  ~ \x1b[0m\x1b[K`;
     }
@@ -254,10 +335,10 @@ function render() {
   const currentLineChars = Array.from(lines[cursorY] ?? "");
   const charsBeforeCursor = currentLineChars.slice(0, cursorX).join("");
   const visualCursorX = getStringWidth(charsBeforeCursor);
-  const screenCursorX = visualCursorX + LINE_NUM_WIDTH + 1;
+  const screenCursorX = Math.min(cols, visualCursorX + LINE_NUM_WIDTH + 1);
 
   output += `\x1b[${screenCursorY};${screenCursorX}H`;
-  output += "\x1b[?25h";
+  output += "\x1b[?25h\x1b[?2026l";
 
   process.stdout.write(output);
 }
@@ -267,56 +348,73 @@ function setTitle(title: string) {
   process.stdout.write(`\x1b]0;${title}\x07`);
 }
 
+let cleanedUp = false;
 function cleanup() {
+  if (cleanedUp) return;
+  cleanedUp = true;
   setTitle(""); // タイトルリセット
-  // 代替画面バッファを抜けて通常画面に戻し、カーソルを表示
-  process.stdout.write("\x1b[?1049l\x1b[?25h");
+  // Bracketed Paste / 代替画面バッファ解除、カーソル・装飾復帰
+  process.stdout.write("\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m");
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
 }
 
+if (!process.stdin.isTTY) {
+  console.error("エラー: inzm.ts は対話型ターミナル (TTY) で実行してください。");
+  process.exit(1);
+}
+
 process.on("exit", cleanup);
 process.on("SIGINT", () => process.exit(0));
+process.on("SIGTERM", () => process.exit(0));
+process.on("SIGHUP", () => process.exit(0));
 
 process.stdout.on("resize", () => {
   render();
 });
 
-if (process.stdin.isTTY) {
-  process.stdin.setRawMode(true);
-}
+process.stdin.setRawMode(true);
 process.stdin.resume();
 
 setTitle(`inzm - ${filename}`);
 
-// 代替画面バッファ (Alternate Screen Buffer) に入る
-process.stdout.write("\x1b[?1049h");
+// 代替画面バッファ & Bracketed Paste 有効化
+process.stdout.write("\x1b[?1049h\x1b[?2004h");
 
-// DSRプローブ: 端末の曖昧幅 (EAW) を動的自動検知
+let inputBuffer = "";
+const stdinDecoder = new StringDecoder("utf8");
+
+// DSRプローブ: カーソル退避＋不可視出力＋先行入力を保持してEAWを動的自動検知
 async function probeEaw(): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
+    let resp = "";
+    const finish = (eaw: boolean) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      process.stdin.removeListener("data", onData);
+      process.stdout.write("\x1b[1;1H\x1b[2K\x1b8");
+      resolve(eaw);
+    };
     const timeout = setTimeout(() => {
-      if (!done) {
-        done = true;
-        resolve(true); // タイムアウト時は安全にデフォルトEAW
-      }
+      if (resp) inputBuffer += resp;
+      finish(true); // タイムアウト時は安全にデフォルトEAW
     }, 100);
 
     const onData = (data: Buffer) => {
-      const match = data.toString().match(/\[\d+;(\d+)R/);
-      if (match) {
-        done = true;
-        clearTimeout(timeout);
-        process.stdin.removeListener("data", onData);
-        process.stdout.write("\x1b[1;1H\x1b[2K"); // 画面クリア
-        resolve(parseInt(match[1], 10) === 3);
+      resp += stdinDecoder.write(data);
+      const match = resp.match(/\x1b\[(\d+);(\d+)R/);
+      if (match && match.index !== undefined) {
+        const rest = resp.slice(0, match.index) + resp.slice(match.index + match[0].length);
+        if (rest) inputBuffer += rest;
+        finish(parseInt(match[2], 10) === 3);
       }
     };
 
     process.stdin.on("data", onData);
-    process.stdout.write("\x1b[1;1H\x1b[2Kα\x1b[6n");
+    process.stdout.write("\x1b7\x1b[1;1H\x1b[2K\x1b[8mα\x1b[6n\x1b[0m");
   });
 }
 
@@ -398,12 +496,98 @@ async function runQuickRun() {
   process.stdout.write("\x1b[7m [q] または [Esc] を押すとエディタに戻ります \x1b[0m\r\n");
 }
 
-// --- 6. キー入力ハンドラ ---
-process.stdin.on("data", async (data: Buffer) => {
-  const key = data.toString();
+// --- 6. キー入力ハンドラ (ストリームデコーダ + Bracketed Paste) ---
+let inPaste = false;
+let escTimer: ReturnType<typeof setTimeout> | null = null;
 
+function drainInputTokens(flushTrailingEsc: boolean): string[] {
+  const tokens: string[] = [];
+  while (inputBuffer.length > 0) {
+    if (inPaste) {
+      const endIdx = inputBuffer.indexOf("\x1b[201~");
+      if (endIdx === -1) {
+        let safeLen = Math.max(0, inputBuffer.length - 5);
+        if (safeLen > 0) {
+          const lastCode = inputBuffer.charCodeAt(safeLen - 1);
+          if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+            safeLen--;
+          }
+        }
+        if (safeLen > 0 && inputBuffer[safeLen - 1] === "\r") {
+          safeLen--;
+        }
+        if (safeLen > 0) {
+          tokens.push("PASTE:" + inputBuffer.slice(0, safeLen));
+          inputBuffer = inputBuffer.slice(safeLen);
+        }
+        break;
+      }
+      if (endIdx > 0) {
+        tokens.push("PASTE:" + inputBuffer.slice(0, endIdx));
+      }
+      inputBuffer = inputBuffer.slice(endIdx + 6);
+      inPaste = false;
+      continue;
+    }
+
+    if (inputBuffer[0] === "\x1b") {
+      if (inputBuffer.length === 1) {
+        if (flushTrailingEsc) {
+          tokens.push("\x1b");
+          inputBuffer = "";
+        }
+        break;
+      }
+      const next = inputBuffer[1];
+      if (next === "[") {
+        let j = 2;
+        while (j < inputBuffer.length) {
+          const code = inputBuffer.charCodeAt(j);
+          if (code >= 0x40 && code <= 0x7e) {
+            const seq = inputBuffer.slice(0, j + 1);
+            inputBuffer = inputBuffer.slice(j + 1);
+            if (seq === "\x1b[200~") {
+              inPaste = true;
+            } else {
+              tokens.push(seq);
+            }
+            j = -1;
+            break;
+          }
+          j++;
+        }
+        if (j !== -1) break;
+        continue;
+      } else if (next === "O") {
+        if (inputBuffer.length < 3) break;
+        const c3 = inputBuffer[2];
+        inputBuffer = inputBuffer.slice(3);
+        const ss3: Record<string, string> = {
+          A: "\x1b[A", B: "\x1b[B", C: "\x1b[C", D: "\x1b[D", H: "\x1b[H", F: "\x1b[F",
+        };
+        tokens.push(ss3[c3] ?? `\x1bO${c3}`);
+        continue;
+      } else {
+        tokens.push(inputBuffer.slice(0, 2));
+        inputBuffer = inputBuffer.slice(2);
+        continue;
+      }
+    }
+
+    const cp = inputBuffer.codePointAt(0) ?? 0;
+    const ch = String.fromCodePoint(cp);
+    tokens.push(ch);
+    inputBuffer = inputBuffer.slice(ch.length);
+  }
+  return tokens;
+}
+
+async function handleKeyToken(key: string) {
   // === QuickRun 結果画面 ===
   if (currentMode === "QUICKRUN_VIEW") {
+    if (key.startsWith("PASTE:")) {
+      return;
+    }
     if (key === "q" || key === "Q" || key === "\x1b" || key === "\r" || key === "\n") {
       currentMode = "EDIT";
       statusMessage = "QuickRun 完了";
@@ -412,6 +596,29 @@ process.stdin.on("data", async (data: Buffer) => {
     if (key === "\u0003") {
       process.exit(0);
     }
+    return;
+  }
+
+  if (key.startsWith("PASTE:")) {
+    const pasted = key.slice(6).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const pasteLines = pasted.split("\n");
+    const curChars = Array.from(lines[cursorY] ?? "");
+    const before = curChars.slice(0, cursorX).join("");
+    const after = curChars.slice(cursorX).join("");
+    if (pasteLines.length === 1) {
+      lines[cursorY] = before + pasteLines[0] + after;
+      cursorX += Array.from(pasteLines[0]).length;
+    } else {
+      lines[cursorY] = before + pasteLines[0];
+      const mid = pasteLines.slice(1, -1);
+      const last = pasteLines[pasteLines.length - 1];
+      lines.splice(cursorY + 1, 0, ...mid, last + after);
+      cursorY += pasteLines.length - 1;
+      cursorX = Array.from(last).length;
+    }
+    isModified = true;
+    updateHighlight();
+    render();
     return;
   }
 
@@ -505,7 +712,6 @@ process.stdin.on("data", async (data: Buffer) => {
     key === "\x1b[5~" ||
     key === "\x1b[5;2~" ||
     key === "\x1b[5;5~" ||
-    key === "\x1b[I" ||
     key === "\x1b[V" ||
     key === "\x1bv"
   ) {
@@ -586,4 +792,52 @@ process.stdin.on("data", async (data: Buffer) => {
   }
 
   render();
+}
+
+let processingInput = false;
+
+async function flushInputQueue() {
+  if (processingInput) return;
+  processingInput = true;
+  try {
+    while (true) {
+      const tokens = drainInputTokens(false);
+      if (tokens.length === 0) break;
+      for (const tok of tokens) {
+        await handleKeyToken(tok);
+      }
+    }
+    if (inputBuffer === "\x1b" && !escTimer) {
+      escTimer = setTimeout(async () => {
+        escTimer = null;
+        if (processingInput) return;
+        processingInput = true;
+        try {
+          for (const tok of drainInputTokens(true)) {
+            await handleKeyToken(tok);
+          }
+        } finally {
+          processingInput = false;
+          if (inputBuffer.length > 0) {
+            void flushInputQueue();
+          }
+        }
+      }, 40);
+    }
+  } finally {
+    processingInput = false;
+  }
+}
+
+process.stdin.on("data", (data: Buffer) => {
+  if (escTimer) {
+    clearTimeout(escTimer);
+    escTimer = null;
+  }
+  inputBuffer += stdinDecoder.write(data);
+  void flushInputQueue();
 });
+
+if (inputBuffer.length > 0) {
+  await flushInputQueue();
+}

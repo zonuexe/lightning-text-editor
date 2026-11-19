@@ -46,11 +46,12 @@ pub enum KeyEvent {
 pub struct InputDecoder {
   mut utf8_pending : Array[Byte]
   mut esc_pending : String
+  mut in_paste : Bool
 }
 
 ///|
 pub fn InputDecoder::new() -> InputDecoder {
-  { utf8_pending: [], esc_pending: "", }
+  { utf8_pending: [], esc_pending: "", in_paste: false, }
 }
 
 ///|
@@ -284,10 +285,52 @@ pub fn InputDecoder::parse_str(
   let events : Array[KeyEvent] = []
   let n = chars.length()
   let mut i = 0
+  let end_marker : Array[Char] = ['\u{1B}', '[', '2', '0', '1', '~']
   while i < n {
     let ch = chars[i]
     let cp = ch.to_int()
-    if cp == 0x1B {
+    if self.in_paste {
+      if cp == 0x1B {
+        let rem = n - i
+        if rem >= 6 &&
+          chars[i] == end_marker[0] &&
+          chars[i + 1] == end_marker[1] &&
+          chars[i + 2] == end_marker[2] &&
+          chars[i + 3] == end_marker[3] &&
+          chars[i + 4] == end_marker[4] &&
+          chars[i + 5] == end_marker[5] {
+          self.in_paste = false
+          i += 6
+        } else if rem < 6 {
+          let mut is_prefix = true
+          for k = 0; k < rem; k = k + 1 {
+            if chars[i + k] != end_marker[k] {
+              is_prefix = false
+              break
+            }
+          }
+          if is_prefix {
+            self.esc_pending = chars_to_string(chars[i:n])
+            break
+          }
+          events.push(KeyEvent::Char(ch))
+          i += 1
+        } else {
+          events.push(KeyEvent::Char(ch))
+          i += 1
+        }
+      } else if cp == 0x0D || cp == 0x0A {
+        events.push(KeyEvent::Enter)
+        if cp == 0x0D && i + 1 < n && chars[i + 1].to_int() == 0x0A {
+          i += 2
+        } else {
+          i += 1
+        }
+      } else {
+        events.push(KeyEvent::Char(ch))
+        i += 1
+      }
+    } else if cp == 0x1B {
       // Escape sequence handling
       if i + 1 >= n {
         // Standalone ESC -> emit Escape immediately so user doesn't wait
@@ -312,9 +355,13 @@ pub fn InputDecoder::parse_str(
             break
           }
           let seq = chars_to_string(chars[i:j + 1])
-          match parse_csi(seq) {
-            Some(ev) => events.push(ev)
-            None => ()
+          if seq == "\u{1B}[200~" {
+            self.in_paste = true
+          } else {
+            match parse_csi(seq) {
+              Some(ev) => events.push(ev)
+              None => ()
+            }
           }
           i = j + 1
         } else if next == 'O' {

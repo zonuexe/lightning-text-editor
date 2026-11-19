@@ -217,9 +217,20 @@ fn Editor::cursor_visual_x(self : Editor) -> Int32 {
   }
   let mut w = 0
   for i = 0; i < limit; i = i + 1 {
-    w += char_width(chars[i], self.is_eaw)
+    let (_, cw) = sanitize_char_at(chars[i], w, self.is_eaw)
+    w += cw
   }
   w
+}
+
+///|
+fn Editor::text_cols(self : Editor) -> Int32 {
+  let gw = self.gutter_width()
+  if self.cols > gw + 1 {
+    self.cols - gw - 1
+  } else {
+    1
+  }
 }
 
 ///|
@@ -231,7 +242,7 @@ fn Editor::ensure_cursor_visible(self : Editor) -> Unit {
   if self.cursor_y >= self.row_offset + visible_rows {
     self.row_offset = self.cursor_y - visible_rows + 1
   }
-  let text_cols = self.cols - self.gutter_width()
+  let text_cols = self.text_cols()
   let safe_cols = if text_cols < 4 { 4 } else { text_cols }
   let vx = self.cursor_visual_x()
   if vx < self.col_offset {
@@ -623,7 +634,7 @@ fn Editor::pos_from_click(self : Editor, col1 : Int32, row1 : Int32) -> Pos? {
   let mut vx = 0
   let mut x = 0
   for i = 0; i < chars.length(); i = i + 1 {
-    let w = char_width(chars[i], self.is_eaw)
+    let (_, w) = sanitize_char_at(chars[i], vx, self.is_eaw)
     if vx + w > target_vx {
       break
     }
@@ -901,12 +912,12 @@ pub fn Editor::feed_bytes(self : Editor, chunk : BytesView) -> String {
 
 ///|
 pub fn Editor::enter_alt_screen() -> String {
-  "\u{1B}[?1049h\u{1B}[?1002h\u{1B}[?1006h\u{1B}[2J\u{1B}[H"
+  "\u{1B}[?1049h\u{1B}[?1002h\u{1B}[?1006h\u{1B}[?2004h\u{1B}[2J\u{1B}[H"
 }
 
 ///|
 pub fn Editor::leave_alt_screen() -> String {
-  "\u{1B}[?1006l\u{1B}[?1002l\u{1B}[?1049l\u{1B}[?25h\u{1B}[0m"
+  "\u{1B}[?2004l\u{1B}[?1006l\u{1B}[?1002l\u{1B}[?1049l\u{1B}[?25h\u{1B}[0m"
 }
 
 ///|
@@ -924,6 +935,18 @@ fn pad_left(s : String, width : Int32, fill : Char) -> String {
 }
 
 ///|
+fn sanitize_and_measure(s : String, is_eaw : Bool) -> (String, Int32) {
+  let buf = StringBuilder()
+  let mut w = 0
+  for ch in s {
+    let (disp, cw) = sanitize_char_at(ch, w, is_eaw)
+    buf.write_string(disp)
+    w += cw
+  }
+  (buf.to_string(), w)
+}
+
+///|
 fn slice_by_display_cols(
   line : String,
   col_offset : Int32,
@@ -934,7 +957,7 @@ fn slice_by_display_cols(
   let mut x = 0
   let mut out_w = 0
   for ch in line {
-    let w = char_width(ch, is_eaw)
+    let (disp, w) = sanitize_char_at(ch, x, is_eaw)
     if x + w <= col_offset {
       x += w
       continue
@@ -952,7 +975,7 @@ fn slice_by_display_cols(
     if out_w + w > max_cols {
       break
     }
-    buf.write_char(ch)
+    buf.write_string(disp)
     x += w
     out_w += w
   }
@@ -975,7 +998,8 @@ fn Editor::current_char_badge(self : Editor) -> String {
     return "<EOL>"
   }
   let ch = chars[self.cursor_x]
-  let w = char_width(ch, self.is_eaw)
+  let vx = self.cursor_visual_x()
+  let (_, w) = sanitize_char_at(ch, vx, self.is_eaw)
   let cp = format_codepoint(ch)
   "\{cp} (\{w}c)"
 }
@@ -1000,7 +1024,7 @@ fn render_line_with_selection(
       (Some(s), Some(e)) => idx >= s && idx < e
       _ => false
     }
-    let w = char_width(ch, is_eaw)
+    let (disp, w) = sanitize_char_at(ch, x, is_eaw)
     if x + w <= col_offset {
       x += w
       idx += 1
@@ -1030,7 +1054,7 @@ fn render_line_with_selection(
       buf.write_string("\u{1B}[0m")
       in_sel = false
     }
-    buf.write_char(ch)
+    buf.write_string(disp)
     x += w
     out_w += w
     idx += 1
@@ -1051,9 +1075,9 @@ pub fn Editor::render(self : Editor) -> String {
   let gw = self.gutter_width()
   let num_w = gw - 1
   let text_rows = self.text_rows()
-  let text_cols = if self.cols > gw { self.cols - gw } else { 1 }
+  let text_cols = self.text_cols()
   let sel = self.selection_range()
-  buf.write_string("\u{1B}[?25l\u{1B}[H")
+  buf.write_string("\u{1B}[?2026h\u{1B}[?25l\u{1B}[H")
   for row = 0; row < text_rows; row = row + 1 {
     let file_row = self.row_offset + row
     if file_row < self.lines.length() {
@@ -1099,34 +1123,36 @@ pub fn Editor::render(self : Editor) -> String {
   let eaw_flag = if self.is_eaw { "EAW:2" } else { "EAW:1" }
   let sel_len = self.selected_text().iter().count()
   let sel_badge = if sel_len > 0 { " | Sel:\{sel_len}c" } else { "" }
+  let status_cols = if self.cols > 1 { self.cols - 1 } else { 1 }
   let left_status = " inzm (MoonBit) - \{self.filename}\{mod_flag} "
   let right_status = " Ln \{self.cursor_y + 1}, Col \{self.cursor_x + 1}\{sel_badge} | \{self.current_char_badge()} | \{eaw_flag} "
-  let lw = string_width(left_status, self.is_eaw)
-  let rw = string_width(right_status, self.is_eaw)
+  let (safe_left, lw) = sanitize_and_measure(left_status, self.is_eaw)
+  let (safe_right, rw) = sanitize_and_measure(right_status, self.is_eaw)
   buf.write_string("\u{1B}[7m")
-  if lw + rw <= self.cols {
-    buf.write_string(left_status)
-    for i = 0; i < self.cols - lw - rw; i = i + 1 {
+  if lw + rw <= status_cols {
+    buf.write_string(safe_left)
+    for i = 0; i < status_cols - lw - rw; i = i + 1 {
       buf.write_char(' ')
     }
-    buf.write_string(right_status)
+    buf.write_string(safe_right)
   } else {
     let combined = truncate_by_display_cols(
       left_status + right_status,
-      self.cols,
+      status_cols,
       self.is_eaw,
     )
     buf.write_string(combined)
     let cw = string_width(combined, self.is_eaw)
-    for i = 0; i < self.cols - cw; i = i + 1 {
+    for i = 0; i < status_cols - cw; i = i + 1 {
       buf.write_char(' ')
     }
   }
   buf.write_string("\u{1B}[0m\u{1B}[K\r\n")
   // Help / message line (row: rows)
+  let safe_msg_cols = if self.cols > 1 { self.cols - 1 } else { 1 }
   let msg = truncate_by_display_cols(
     self.status_message,
-    self.cols,
+    safe_msg_cols,
     self.is_eaw,
   )
   buf.write_string("\u{1B}[36m")
@@ -1142,5 +1168,6 @@ pub fn Editor::render(self : Editor) -> String {
     let screen_x = gw + (vx - self.col_offset) + 1
     buf.write_string("\u{1B}[\{screen_y};\{screen_x}H\u{1B}[?25h")
   }
+  buf.write_string("\u{1B}[?2026l")
   buf.to_string()
 }

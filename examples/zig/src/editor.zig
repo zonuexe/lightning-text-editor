@@ -124,11 +124,11 @@ pub const Editor = struct {
     }
 
     pub fn enterAltScreen() []const u8 {
-        return "\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[2J\x1b[H";
+        return "\x1b[?1049h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[2J\x1b[H";
     }
 
     pub fn leaveAltScreen() []const u8 {
-        return "\x1b[?1006l\x1b[?1002l\x1b[?1049l\x1b[?25h\x1b[0m";
+        return "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1049l\x1b[?25h\x1b[0m";
     }
 
     pub fn takeSaveRequest(self: *Editor) bool {
@@ -310,6 +310,11 @@ pub const Editor = struct {
         return unicode.strWidth(self.flat[sp.start .. sp.start + lc.col_byte], self.is_eaw);
     }
 
+    fn textCols(self: *const Editor) usize {
+        const gw = self.gutterWidth();
+        return if (self.cols > gw + 1) self.cols - gw - 1 else 1;
+    }
+
     fn ensureCursorVisible(self: *Editor) void {
         const head = self.primaryCursor();
         const lc = self.lineColAt(head);
@@ -320,8 +325,7 @@ pub const Editor = struct {
         if (lc.line >= self.row_offset + visible_rows) {
             self.row_offset = lc.line - visible_rows + 1;
         }
-        const gw = self.gutterWidth();
-        const text_cols = if (self.cols > gw) self.cols - gw else 1;
+        const text_cols = self.textCols();
         const vx = self.visualXAt(head);
         if (vx < self.col_offset) {
             self.col_offset = vx;
@@ -349,7 +353,7 @@ pub const Editor = struct {
         while (i < line_slice.len) {
             const d = unicode.decodeUtf8(line_slice[i..]);
             if (d.len == 0) break;
-            const w = unicode.charWidth(d.cp, self.is_eaw);
+            const w = unicode.displayWidthAt(d.cp, vx, self.is_eaw);
             if (vx + w > target_vx) break;
             vx += w;
             i += d.len;
@@ -905,9 +909,9 @@ pub const Editor = struct {
         const gw = self.gutterWidth();
         const num_w = gw - 1;
         const visible_rows = self.textRows();
-        const text_cols = if (self.cols > gw) self.cols - gw else 1;
+        const text_cols = self.textCols();
 
-        try out.appendSlice(self.allocator, "\x1b[?25l\x1b[H");
+        try out.appendSlice(self.allocator, "\x1b[?2026h\x1b[?25l\x1b[H");
         var tmp: [256]u8 = undefined;
 
         for (0..visible_rows) |row| {
@@ -959,33 +963,34 @@ pub const Editor = struct {
             .{ lc.line + 1, lc.col_byte + 1, extra_s, self.pt.pieces.items.len, self.pt.undo_stack.items.len, self.pt.redo_stack.items.len, eaw_s },
         ) catch "";
 
+        const status_cols = if (self.cols > 1) self.cols - 1 else 1;
         try out.appendSlice(self.allocator, "\x1b[7m");
         const lw = unicode.strWidth(left_s, self.is_eaw);
         const rw = unicode.strWidth(right_s, self.is_eaw);
-        if (lw + rw <= self.cols) {
-            try out.appendSlice(self.allocator, left_s);
-            var spaces = self.cols - lw - rw;
+        if (lw + rw <= status_cols) {
+            const used_l = try self.appendTruncated(out, left_s, status_cols);
+            var spaces = if (status_cols > used_l + rw) status_cols - used_l - rw else 0;
             while (spaces > 0) : (spaces -= 1) try out.append(self.allocator, ' ');
-            try out.appendSlice(self.allocator, right_s);
-        } else if (rw <= self.cols) {
-            const avail = self.cols - rw;
-            try self.appendTruncated(out, left_s, avail);
-            const used = @min(lw, avail);
-            var spaces = avail - used;
+            _ = try self.appendTruncated(out, right_s, status_cols - used_l);
+        } else if (rw <= status_cols) {
+            const avail = status_cols - rw;
+            const used = try self.appendTruncated(out, left_s, avail);
+            var spaces = if (avail > used) avail - used else 0;
             while (spaces > 0) : (spaces -= 1) try out.append(self.allocator, ' ');
-            try out.appendSlice(self.allocator, right_s);
+            _ = try self.appendTruncated(out, right_s, rw);
         } else {
-            try self.appendTruncated(out, right_s, self.cols);
+            _ = try self.appendTruncated(out, right_s, status_cols);
         }
         try out.appendSlice(self.allocator, "\x1b[0m\x1b[K\r\n");
 
+        const safe_msg_cols = if (self.cols > 1) self.cols - 1 else 1;
         if (self.search_mode) {
             try out.appendSlice(self.allocator, "\x1b[33mSearch: \x1b[0m");
-            try self.appendTruncated(out, self.search_query.items, if (self.cols > 8) self.cols - 8 else 1);
+            _ = try self.appendTruncated(out, self.search_query.items, if (safe_msg_cols > 8) safe_msg_cols - 8 else 1);
             try out.appendSlice(self.allocator, "\x1b[K");
         } else {
             try out.appendSlice(self.allocator, "\x1b[36m");
-            try self.appendTruncated(out, self.status_message, self.cols);
+            _ = try self.appendTruncated(out, self.status_message, safe_msg_cols);
             try out.appendSlice(self.allocator, "\x1b[0m\x1b[K");
         }
 
@@ -996,6 +1001,7 @@ pub const Editor = struct {
             const pos_s = try std.fmt.bufPrint(&tmp, "\x1b[{d};{d}H\x1b[?25h", .{ sy, sx });
             try out.appendSlice(self.allocator, pos_s);
         }
+        try out.appendSlice(self.allocator, "\x1b[?2026l");
     }
 
     fn isSecondaryHeadAt(self: *const Editor, abs_pos: usize) bool {
@@ -1034,7 +1040,9 @@ pub const Editor = struct {
 
             const d = unicode.decodeUtf8(line[i..]);
             if (d.len == 0) break;
-            const w = unicode.charWidth(d.cp, self.is_eaw);
+            const w = unicode.displayWidthAt(d.cp, x, self.is_eaw);
+            var san_buf: [4]u8 = undefined;
+            const disp = unicode.sanitizeSlice(d.cp, line[i .. i + d.len], x, &san_buf);
             if (x + w <= self.col_offset) {
                 x += w;
                 i += d.len;
@@ -1061,7 +1069,7 @@ pub const Editor = struct {
             } else if (hl_active) {
                 try out.appendSlice(self.allocator, "\x1b[43;30m");
             }
-            try out.appendSlice(self.allocator, line[i .. i + d.len]);
+            try out.appendSlice(self.allocator, disp);
             if (is_sec or is_sel or hl_active) {
                 try out.appendSlice(self.allocator, "\x1b[0m");
             }
@@ -1081,6 +1089,7 @@ pub const Editor = struct {
     }
 
     fn renderInspector(self: *const Editor, out: *std.ArrayList(u8)) !void {
+        const safe_cols = if (self.cols > 1) self.cols - 1 else 1;
         var hdr_buf: [256]u8 = undefined;
         const hdr = std.fmt.bufPrint(
             &hdr_buf,
@@ -1088,7 +1097,7 @@ pub const Editor = struct {
             .{ self.pt.pieces.items.len, self.pt.original.len, self.pt.add_buf.items.len, self.pt.undo_stack.items.len, self.pt.redo_stack.items.len, self.cursors.items.len, self.primaryCursor() },
         ) catch "── Piece Table Inspector ──";
         try out.appendSlice(self.allocator, "\x1b[90m");
-        try self.appendTruncated(out, hdr, self.cols);
+        _ = try self.appendTruncated(out, hdr, safe_cols);
         try out.appendSlice(self.allocator, "\x1b[0m\x1b[K\r\n");
 
         var cur_w: usize = 0;
@@ -1121,7 +1130,7 @@ pub const Editor = struct {
                 .{ tag, piece.start, piece.start + piece.len, preview_buf[0..p_len] },
             ) catch continue;
 
-            if (cur_w + chip.len > self.cols) {
+            if (cur_w + chip.len > safe_cols) {
                 try out.appendSlice(self.allocator, "\x1b[K\r\n");
                 row_idx += 1;
                 cur_w = 0;
@@ -1142,18 +1151,21 @@ pub const Editor = struct {
         }
     }
 
-    fn appendTruncated(self: *const Editor, out: *std.ArrayList(u8), s: []const u8, max_cols: usize) !void {
+    fn appendTruncated(self: *const Editor, out: *std.ArrayList(u8), s: []const u8, max_cols: usize) !usize {
         var w: usize = 0;
         var i: usize = 0;
         while (i < s.len) {
             const d = unicode.decodeUtf8(s[i..]);
             if (d.len == 0) break;
-            const cw = unicode.charWidth(d.cp, self.is_eaw);
+            const cw = unicode.displayWidthAt(d.cp, w, self.is_eaw);
             if (w + cw > max_cols) break;
-            try out.appendSlice(self.allocator, s[i .. i + d.len]);
+            var san_buf: [4]u8 = undefined;
+            const disp = unicode.sanitizeSlice(d.cp, s[i .. i + d.len], w, &san_buf);
+            try out.appendSlice(self.allocator, disp);
             w += cw;
             i += d.len;
         }
+        return w;
     }
 };
 
@@ -1271,4 +1283,53 @@ test "editor multi-cursor ctrl+d word selection, atomic undo/redo, and collapse"
 
     try ed.feedBytes("\x1b[H\x1b[1;3A!", &out);
     try std.testing.expectEqualStrings("bar one\n!bar two\n!bar three", ed.flat);
+}
+
+test "editor bracketed paste preserves literal tab, newlines, and suppresses shortcuts" {
+    const alloc = std.testing.allocator;
+    var ed = try Editor.init(alloc, 80, 20, "paste.txt", "");
+    defer ed.deinit();
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(alloc);
+
+    // Paste with literal tab, CRLF, Ctrl+Q (\x11), Ctrl+D (\x04), Backspace (\x7f),
+    // and split end marker "\x1b[201" + "~"
+    try ed.feedBytes("\x1b[200~a\tb\r\nc\x11\x04\x7fd\x1b[201", &out);
+    try std.testing.expect(!ed.should_quit);
+    try ed.feedBytes("~", &out);
+    try std.testing.expectEqualStrings("a\tb\nc\x11\x04\x7fd", ed.flat);
+
+    // After paste ends, Tab inserts two spaces and Ctrl+Q triggers quit guard
+    try ed.feedBytes("\t!", &out);
+    try std.testing.expectEqualStrings("a\tb\nc\x11\x04\x7fd  !", ed.flat);
+    try ed.feedBytes("\x11", &out);
+    try std.testing.expect(!ed.should_quit);
+    try ed.feedBytes("\x11", &out);
+    try std.testing.expect(ed.should_quit);
+}
+
+test "editor sanitizes filename, control chars, tabs, and limits lines to cols - 1" {
+    const alloc = std.testing.allocator;
+    var ed = try Editor.init(alloc, 80, 20, "bad\x1b[31m\x07\tname.txt", "\tX\n\x01Y");
+    defer ed.deinit();
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(alloc);
+
+    try ed.render(&out);
+    // Raw escape / bell in filename must be sanitized in the status bar fast path
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x1b[31m") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "\x07") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "bad^[[31m^G") != null);
+    // Buffer tab and control char are sanitized in rendered body
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "    X") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "^AY") != null);
+
+    // Narrow terminal (cols=24): body stops at text_cols = 24 - 4 - 1 = 19 chars
+    var narrow = try Editor.init(alloc, 24, 10, "n.txt", "012345678901234567890123456789");
+    defer narrow.deinit();
+    out.clearRetainingCapacity();
+    try narrow.render(&out);
+    try std.testing.expect(std.mem.indexOf(u8, out.items, "0123456789012345678\x1b[K") != null);
 }

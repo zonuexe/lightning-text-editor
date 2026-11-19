@@ -49,6 +49,7 @@ pub const KeyEvent = union(enum) {
 pub const InputDecoder = struct {
     buf: [64]u8 = undefined,
     len: usize = 0,
+    in_paste: bool = false,
 
     pub fn pushAndNext(self: *InputDecoder, data: []const u8, events: *std.ArrayList(KeyEvent), allocator: std.mem.Allocator) !void {
         var offset: usize = 0;
@@ -69,6 +70,40 @@ pub const InputDecoder = struct {
         var i: usize = 0;
         while (i < self.len) {
             const b = self.buf[i];
+            if (self.in_paste) {
+                if (b == 0x1B) {
+                    const end_marker = "\x1b[201~";
+                    const rem = self.len - i;
+                    if (rem >= end_marker.len and std.mem.eql(u8, self.buf[i .. i + end_marker.len], end_marker)) {
+                        self.in_paste = false;
+                        i += end_marker.len;
+                        continue;
+                    }
+                    if (rem < end_marker.len and std.mem.startsWith(u8, end_marker, self.buf[i..self.len])) {
+                        break;
+                    }
+                    try events.append(allocator, .{ .char = b });
+                    i += 1;
+                } else if (b == '\r' or b == '\n') {
+                    if (b == '\r' and i + 1 >= self.len and !at_chunk_end) break;
+                    try events.append(allocator, .enter);
+                    if (b == '\r' and i + 1 < self.len and self.buf[i + 1] == '\n') {
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                } else if (b < 0x20 or b == 0x7F) {
+                    try events.append(allocator, .{ .char = b });
+                    i += 1;
+                } else {
+                    const need = unicode.utf8CharLen(b);
+                    if (i + need > self.len) break;
+                    const dec = unicode.decodeUtf8(self.buf[i..self.len]);
+                    try events.append(allocator, .{ .char = dec.cp });
+                    i += dec.len;
+                }
+                continue;
+            }
             if (b == 0x1B) {
                 if (i + 1 >= self.len) {
                     if (at_chunk_end) {
@@ -81,7 +116,11 @@ pub const InputDecoder = struct {
                     var j = i + 2;
                     while (j < self.len and !(self.buf[j] >= 0x40 and self.buf[j] <= 0x7E)) : (j += 1) {}
                     if (j >= self.len) break;
-                    if (parseCsi(self.buf[i + 2 .. j], self.buf[j])) |ev| {
+                    const body = self.buf[i + 2 .. j];
+                    const final = self.buf[j];
+                    if (final == '~' and std.mem.eql(u8, body, "200")) {
+                        self.in_paste = true;
+                    } else if (parseCsi(body, final)) |ev| {
                         try events.append(allocator, ev);
                     }
                     i = j + 1;

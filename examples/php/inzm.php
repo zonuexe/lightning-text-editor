@@ -22,72 +22,176 @@ if (file_exists($filename)) {
 }
 
 // --- 2. ターミナル制御 & EAW自動検知 (DSRプローブ) ---
-system("stty -icanon -echo");
-echo "\x1b[?1049h\x1b[2J\x1b[H"; // 代替画面バッファへ
+if (!function_exists('stream_isatty') || !stream_isatty(STDIN)) {
+    fwrite(STDERR, "エラー: inzm.php は対話型ターミナル (TTY) で実行してください。\n");
+    exit(1);
+}
+
+$origStty = trim((string)shell_exec('stty -g'));
+system("stty -icanon -echo -ixon -icrnl -iexten intr undef quit undef susp undef");
+echo "\x1b[?1049h\x1b[?2004h\x1b[2J\x1b[H"; // 代替画面バッファ & Bracketed Paste 有効化
+fflush(STDOUT);
 
 function setTitle(string $title) {
     echo "\x1b]0;{$title}\x07";
 }
 
+$cleanedUp = false;
 function cleanup() {
+    global $origStty, $cleanedUp;
+    if ($cleanedUp) return;
+    $cleanedUp = true;
     setTitle("");
-    echo "\x1b[?1049l\x1b[?25h";
-    system("stty sane");
+    echo "\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m";
+    fflush(STDOUT);
+    if ($origStty !== '') {
+        system('stty ' . escapeshellarg($origStty));
+    } else {
+        system("stty sane");
+    }
 }
 register_shutdown_function('cleanup');
-pcntl_signal(SIGINT, function() { exit(0); });
-pcntl_async_signals(true);
+
+$needsResize = false;
+if (function_exists('pcntl_signal')) {
+    pcntl_async_signals(true);
+    pcntl_signal(SIGINT, function() { exit(0); });
+    pcntl_signal(SIGTERM, function() { exit(0); });
+    pcntl_signal(SIGHUP, function() { exit(0); });
+    if (defined('SIGWINCH')) {
+        pcntl_signal(SIGWINCH, function() use (&$needsResize) {
+            $needsResize = true;
+        });
+    }
+}
 
 function getWindowSize(): array {
-    $cols = (int)exec('tput cols') ?: 80;
-    $rows = (int)exec('tput lines') ?: 24;
+    $size = trim((string)@shell_exec('stty size < /dev/tty 2>/dev/null'));
+    if (preg_match('/^(\d+)\s+(\d+)$/', $size, $m)) {
+        return [(int)$m[2], (int)$m[1]];
+    }
+    $cols = (int)exec('tput cols 2>/dev/null') ?: 80;
+    $rows = (int)exec('tput lines 2>/dev/null') ?: 24;
     return [$cols, $rows];
 }
 
-// DSRプローブ: 曖昧文字 'α' を出力してカーソル移動量を測定し、端末がEAWかどうかを動的検知
-function probeEaw(): bool {
-    echo "\x1b[1;1H\x1b[2Kα\x1b[6n";
-    $resp = '';
-    stream_set_blocking(STDIN, false);
-    $start = microtime(true);
-    while (microtime(true) - $start < 0.1) {
-        $c = fgetc(STDIN);
-        if ($c !== false) {
-            $resp .= $c;
-            if ($c === 'R') break;
-        }
-        usleep(5000);
-    }
-    stream_set_blocking(STDIN, true);
-    echo "\x1b[1;1H\x1b[2K"; // 画面を消して元に戻す
+$pendingBytes = '';
 
-    // レスポンス: \x1b[{row};{col}R
-    if (preg_match('/\[\d+;(\d+)R/', $resp, $matches)) {
-        $col = (int)$matches[1];
-        return ($col === 3); // 2マス進んでいればEAW端末！
+function readRawByte(?int $timeoutUsec = null): ?string {
+    global $pendingBytes, $needsResize;
+    if ($pendingBytes !== '') {
+        $b = $pendingBytes[0];
+        $pendingBytes = substr($pendingBytes, 1);
+        return $b;
     }
-    return true; // デフォルトはEAWと仮定
+    while (true) {
+        $read = [STDIN];
+        $write = $except = null;
+        $sec = $timeoutUsec === null ? null : intdiv($timeoutUsec, 1000000);
+        $usec = $timeoutUsec === null ? 0 : ($timeoutUsec % 1000000);
+        $ready = @stream_select($read, $write, $except, $sec, $usec);
+        if ($ready === false) {
+            if ($needsResize) {
+                return '';
+            }
+            continue;
+        }
+        if ($ready === 0) {
+            return null;
+        }
+        $c = fgetc(STDIN);
+        return $c === false ? null : $c;
+    }
+}
+
+// DSRプローブ: カーソル退避＋不可視出力＋先行入力を保持してEAWを動的検知
+function probeEaw(): bool {
+    global $pendingBytes;
+    echo "\x1b7\x1b[1;1H\x1b[2K\x1b[8mα\x1b[6n\x1b[0m";
+    fflush(STDOUT);
+
+    $resp = '';
+    $deadline = microtime(true) + 0.1;
+    while (true) {
+        $rem = (int)(($deadline - microtime(true)) * 1000000);
+        if ($rem <= 0) break;
+        $c = readRawByte($rem);
+        if ($c === null) break;
+        if ($c === '') continue;
+        $resp .= $c;
+        if (preg_match('/\x1b\[(\d+);(\d+)R/', $resp, $matches, PREG_OFFSET_CAPTURE)) {
+            $offset = $matches[0][1];
+            $len = strlen($matches[0][0]);
+            $pendingBytes = substr($resp, 0, $offset) . substr($resp, $offset + $len) . $pendingBytes;
+            echo "\x1b[1;1H\x1b[2K\x1b8";
+            fflush(STDOUT);
+            return ((int)$matches[2][0] === 3);
+        }
+    }
+    if ($resp !== '') {
+        $pendingBytes = $resp . $pendingBytes;
+    }
+    echo "\x1b[1;1H\x1b[2K\x1b8";
+    fflush(STDOUT);
+    return true;
 }
 
 $isEaw = probeEaw();
 
-// 文字幅判定（EAWなら mb_strwidth、非EAWなら補正）
-function getStrWidth(string $str): int {
+function getCharWidth(string $ch): int {
     global $isEaw;
-    if ($isEaw) {
-        return mb_strwidth($str, 'UTF-8');
+    $code = mb_ord($ch, 'UTF-8');
+    if ($code < 0x20 || $code === 0x7F || ($code >= 0x80 && $code < 0xA0)) {
+        return ($code === 0x7F || $code < 0x20) ? 2 : 1; // ^X / ^? 表示幅
     }
-    // 非EAW環境: 確定全角（ひらがな、カタカナ、漢字、全角英数）のみ2、Ambiguous文字は1
-    $w = 0;
+    if ($isEaw) {
+        return mb_strwidth($ch, 'UTF-8');
+    }
+    if (($code >= 0x3000 && $code <= 0x9FFF) || ($code >= 0xFF01 && $code <= 0xFF60)) {
+        return 2;
+    }
+    return 1;
+}
+
+// 制御文字を無害化し、タブを指定カラムで展開しながら描画文字列・表示幅を算出
+function sanitizeAndMeasure(string $str, int $maxCols = PHP_INT_MAX, int $tabWidth = 4): array {
+    $out = '';
+    $col = 0;
+    $str = mb_scrub($str, 'UTF-8');
     $chars = preg_split('//u', $str, -1, PREG_SPLIT_NO_EMPTY);
+    if ($chars === false) {
+        return ['', 0];
+    }
     foreach ($chars as $ch) {
         $code = mb_ord($ch, 'UTF-8');
-        if (($code >= 0x3000 && $code <= 0x9FFF) || ($code >= 0xFF01 && $code <= 0xFF60)) {
-            $w += 2;
+        if ($ch === "\t") {
+            $w = $tabWidth - ($col % $tabWidth);
+            $disp = str_repeat(' ', $w);
+        } elseif ($code < 0x20) {
+            $w = 2;
+            $disp = '^' . chr($code + 64);
+        } elseif ($code === 0x7F) {
+            $w = 2;
+            $disp = '^?';
+        } elseif ($code >= 0x80 && $code < 0xA0) {
+            $w = 1;
+            $disp = '?';
         } else {
-            $w += 1;
+            $w = getCharWidth($ch);
+            $disp = $ch;
         }
+        if ($col + $w > $maxCols) {
+            break;
+        }
+        $out .= $disp;
+        $col += $w;
     }
+    return [$out, $col];
+}
+
+// 文字幅判定（EAWなら mb_strwidth、非EAWなら補正）
+function getStrWidth(string $str): int {
+    [, $w] = sanitizeAndMeasure($str);
     return $w;
 }
 
@@ -109,7 +213,7 @@ function render() {
     if ($cursorY < $rowOffset) $rowOffset = $cursorY;
     if ($cursorY >= $rowOffset + $screenRows) $rowOffset = $cursorY - $screenRows + 1;
 
-    $out = "\x1b[?25l";
+    $out = "\x1b[?2026h\x1b[?25l";
 
     // 1. タイトルバー (Row 1: 反転表示)
     $out .= "\x1b[1;1H\x1b[7m";
@@ -122,16 +226,19 @@ function render() {
     $pad1 = (int)($space / 2);
     $pad2 = $space - $pad1;
     $titleBar = $leftTitle . str_repeat(' ', $pad1) . $centerTitle . str_repeat(' ', $pad2) . $rightTitle;
-    $out .= mb_strimwidth($titleBar, 0, $cols - 1) . "\x1b[0m\x1b[K";
+    [$safeTitle] = sanitizeAndMeasure($titleBar, max(1, $cols - 1));
+    $out .= $safeTitle . "\x1b[0m\x1b[K";
 
     // 2. 本文テキストエリア (Row 2 .. Rows - 3)
+    $textCols = max(1, $cols - 5);
     for ($i = 0; $i < $screenRows; $i++) {
         $fileRow = $rowOffset + $i;
         $out .= sprintf("\x1b[%d;1H", $i + 2);
 
         if ($fileRow < count($lines)) {
             $lineNum = sprintf("%3d ", $fileRow + 1);
-            $out .= "\x1b[90m" . $lineNum . "\x1b[0m" . $lines[$fileRow] . "\x1b[K";
+            [$safeLine] = sanitizeAndMeasure($lines[$fileRow], $textCols);
+            $out .= "\x1b[90m" . $lineNum . "\x1b[0m" . $safeLine . "\x1b[K";
         } else {
             $out .= "\x1b[90m  ~ \x1b[0m\x1b[K";
         }
@@ -140,7 +247,8 @@ function render() {
     // 3. ステータスライン (Row Rows - 2)
     $out .= sprintf("\x1b[%d;1H", $rows - 2);
     if ($statusMessage) {
-        $out .= "\x1b[1;36m[ " . $statusMessage . " ]\x1b[0m\x1b[K";
+        [$safeMsg] = sanitizeAndMeasure("[ " . $statusMessage . " ]", max(1, $cols - 1));
+        $out .= "\x1b[1;36m" . $safeMsg . "\x1b[0m\x1b[K";
     } else {
         $out .= "\x1b[K";
     }
@@ -166,12 +274,15 @@ function render() {
     $renderShortcutRow = function(array $items, int $rowNum) use ($cols): string {
         $rowStr = sprintf("\x1b[%d;1H", $rowNum);
         $colWidth = (int)(($cols - 1) / count($items));
+        $used = 0;
         foreach ($items as [$key, $desc]) {
             // キーシンボル(^G等)を反転表示、説明文を通常表示
             $entry = "\x1b[7m" . $key . "\x1b[0m " . $desc;
             $entryWidth = getStrWidth($key) + 1 + getStrWidth($desc);
             $padding = max(0, $colWidth - $entryWidth);
+            if ($used + $entryWidth + $padding > $cols - 1) break;
             $rowStr .= $entry . str_repeat(' ', $padding);
+            $used += $entryWidth + $padding;
         }
         return $rowStr . "\x1b[K";
     };
@@ -184,49 +295,115 @@ function render() {
     $currentLine = $lines[$cursorY] ?? '';
     $charsBefore = mb_substr($currentLine, 0, $cursorX);
     $visualX = getStrWidth($charsBefore);
-    $screenX = $visualX + 5; // 行番号幅 (4) + 1
+    $screenX = min($cols, $visualX + 5); // 行番号幅 (4) + 1
 
-    $out .= sprintf("\x1b[%d;%dH\x1b[?25h", $screenY, $screenX);
+    $out .= sprintf("\x1b[%d;%dH\x1b[?25h\x1b[?2026l", $screenY, $screenX);
     echo $out;
+    fflush(STDOUT);
 }
 
 // --- 4. キー入力の読み取り ---
-function readKey(): string {
-    $c = fgetc(STDIN);
-    if ($c === false) return '';
+function readKey(): ?string {
+    $c = readRawByte(null);
+    if ($c === null) return null; // EOF
+    if ($c === '') return '';     // WINCH 等で中断
+
     if ($c === "\x1b") {
-        stream_set_blocking(STDIN, false);
-        $seq = $c;
-        while (($next = fgetc(STDIN)) !== false) {
-            $seq .= $next;
-            if (strlen($seq) >= 3 && preg_match('/[A-Za-z~]/', $next)) break;
+        // 50ms以内に後続が来なければ単独の Esc キー
+        $c2 = readRawByte(50000);
+        if ($c2 === null || $c2 === '') return "\x1b";
+
+        if ($c2 === '[') {
+            $seq = "\x1b[";
+            while (($next = readRawByte(50000)) !== null && $next !== '') {
+                $seq .= $next;
+                $ord = ord($next);
+                if ($ord >= 0x40 && $ord <= 0x7E) break; // CSI 終端バイト
+            }
+            return $seq;
         }
-        stream_set_blocking(STDIN, true);
-        return $seq;
+        if ($c2 === 'O') {
+            $c3 = readRawByte(50000);
+            if ($c3 === null || $c3 === '') return "\x1bO";
+            return match ($c3) {
+                'A' => "\x1b[A",
+                'B' => "\x1b[B",
+                'C' => "\x1b[C",
+                'D' => "\x1b[D",
+                'H' => "\x1b[H",
+                'F' => "\x1b[F",
+                default => "\x1bO" . $c3,
+            };
+        }
+        return "\x1b" . $c2;
     }
+
     // UTF-8 マルチバイト文字
     $ord = ord($c);
     $bytes = 1;
-    if ($ord >= 0xF0) $bytes = 4;
+    if ($ord >= 0xF0 && $ord <= 0xF4) $bytes = 4;
     elseif ($ord >= 0xE0) $bytes = 3;
-    elseif ($ord >= 0xC0) $bytes = 2;
+    elseif ($ord >= 0xC2) $bytes = 2;
     for ($i = 1; $i < $bytes; $i++) {
-        $c .= fgetc(STDIN);
+        $next = readRawByte(50000);
+        if ($next === null || $next === '') break;
+        $c .= $next;
     }
-    return $c;
+    return mb_scrub($c, 'UTF-8');
+}
+
+function readBracketedPaste(): string {
+    $buf = '';
+    $endMarker = "\x1b[201~";
+    $deadline = microtime(true) + 0.2;
+    while (true) {
+        $rem = (int)(($deadline - microtime(true)) * 1000000);
+        if ($rem <= 0) break;
+        $c = readRawByte($rem);
+        if ($c === null) break;
+        if ($c === '') continue;
+        $deadline = microtime(true) + 0.2;
+        $buf .= $c;
+        if (str_ends_with($buf, $endMarker)) {
+            return mb_scrub(substr($buf, 0, -strlen($endMarker)), 'UTF-8');
+        }
+    }
+    return mb_scrub($buf, 'UTF-8');
 }
 
 // nano風プロンプト入力
 function promptInput(string $prompt, string $default = ''): ?string {
-    global $rows;
-    [, $rows] = getWindowSize();
+    global $rows, $needsResize;
+    [$cols, $rows] = getWindowSize();
     $input = $default;
 
     while (true) {
-        echo sprintf("\x1b[%d;1H\x1b[7m %s \x1b[0m %s\x1b[K", $rows - 2, $prompt, $input);
+        $maxW = max(1, $cols - 1);
+        [$safePrompt] = sanitizeAndMeasure(" {$prompt} ", $maxW);
+        $availInput = max(0, $cols - 1 - getStrWidth($safePrompt) - 1);
+        [$safeInput] = sanitizeAndMeasure($input, $availInput);
+        echo sprintf("\x1b[%d;1H\x1b[7m%s\x1b[0m %s\x1b[K", $rows - 2, $safePrompt, $safeInput);
+        fflush(STDOUT);
+
         $k = readKey();
+        if ($k === null) return null;
+        if ($k === '') {
+            if ($needsResize) {
+                $needsResize = false;
+                [$cols, $rows] = getWindowSize();
+            }
+            continue;
+        }
         if ($k === "\r" || $k === "\n") return $input;
         if ($k === "\x03" || $k === "\x1b" || $k === "\x07") return null; // Cancel (^C, Esc, ^G)
+        if ($k === "\x1b[200~") {
+            $pasted = readBracketedPaste();
+            $pasted = str_replace(["\r\n", "\r"], "\n", $pasted);
+            $firstLine = explode("\n", $pasted, 2)[0];
+            $clean = preg_replace('/[\x00-\x1F\x7F]/u', '', $firstLine) ?? '';
+            $input .= $clean;
+            continue;
+        }
         if ($k === "\x7f" || $k === "\x08") {
             $input = mb_substr($input, 0, -1);
         } elseif (!str_starts_with($k, "\x1b") && $k >= ' ') {
@@ -261,10 +438,11 @@ function nanoExecute() {
     $output = shell_exec("php " . escapeshellarg($filename) . " 2>&1");
     echo str_replace("\n", "\r\n", $output ?? "(No output)");
     echo "\r\n\r\n\x1b[7m [q] または [Enter] でエディタに戻ります \x1b[0m\r\n";
+    fflush(STDOUT);
 
     while (true) {
-        $k = fgetc(STDIN);
-        if ($k === 'q' || $k === 'Q' || $k === "\r" || $k === "\n" || $k === "\x1b") break;
+        $k = readKey();
+        if ($k === null || $k === 'q' || $k === 'Q' || $k === "\r" || $k === "\n" || $k === "\x1b") break;
     }
     $statusMessage = "Executed " . basename($filename);
 }
@@ -274,7 +452,37 @@ render();
 
 while (true) {
     $key = readKey();
+    if ($key === null) break;
+    if ($needsResize) {
+        $needsResize = false;
+        render();
+    }
     if ($key === '') continue;
+
+    // Bracketed Paste (\x1b[200~ ... \x1b[201~)
+    if ($key === "\x1b[200~") {
+        $pasted = readBracketedPaste();
+        $pasted = str_replace("\r\n", "\n", $pasted);
+        $pasted = str_replace("\r", "\n", $pasted);
+        $pasteLines = explode("\n", $pasted);
+        $curLine = $lines[$cursorY] ?? '';
+        $before = mb_substr($curLine, 0, $cursorX);
+        $after = mb_substr($curLine, $cursorX);
+        if (count($pasteLines) === 1) {
+            $lines[$cursorY] = $before . $pasteLines[0] . $after;
+            $cursorX += mb_strlen($pasteLines[0]);
+        } else {
+            $lines[$cursorY] = $before . $pasteLines[0];
+            $mid = array_slice($pasteLines, 1, -1);
+            $last = $pasteLines[count($pasteLines) - 1];
+            array_splice($lines, $cursorY + 1, 0, array_merge($mid, [$last . $after]));
+            $cursorY += count($pasteLines) - 1;
+            $cursorX = mb_strlen($last);
+        }
+        $isModified = true;
+        render();
+        continue;
+    }
 
     if ($statusMessage) $statusMessage = '';
     $currentLine = $lines[$cursorY] ?? '';
