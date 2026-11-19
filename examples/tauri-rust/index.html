@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>inzm — Rust + Tauri Editor</title>
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">inzm <span class="badge">Rust + Tauri</span></div>
+      <div class="actions">
+        <button id="btn-new" title="New Tab (⌘T)">New</button>
+        <button id="btn-open" title="Open File (⌘O)">Open</button>
+        <button id="btn-save" title="Save (⌘S)">Save</button>
+        <button id="btn-save-as" title="Save As (⇧⌘S)">Save As</button>
+        <span class="sep"></span>
+        <button id="btn-undo" title="Undo (⌘Z)">Undo</button>
+        <button id="btn-redo" title="Redo (⇧⌘Z)">Redo</button>
+        <button id="btn-find" title="Find (⌘F)">Find</button>
+        <button id="btn-eaw" title="Toggle East Asian Width (^T)">EAW</button>
+      </div>
+    </header>
+    <main id="terminal"></main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

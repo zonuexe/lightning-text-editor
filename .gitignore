@@ -12,6 +12,8 @@ examples/moonbit/web/public/inzm.wasm
 zig-out/
 examples/zig/web/dist/
 examples/zig/web/public/inzm.wasm
+examples/tauri-rust/dist/
+examples/tauri-rust/src-tauri/target/
 __pycache__/
 *.pyc
 *.class

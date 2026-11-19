@@ -111,7 +111,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 | **Ruby** | `io/console` (`IO#raw`, `IO#getch`) | 標準ライブラリだけで驚くほど数行でRaw Modeとキー取得が書ける |
 | **Python** | `termios` + `tty` / `sys.stdin` | 標準モジュールのみで完結。スクリプト1つで即実行可能 |
 | **Go** | `golang.org/x/term` | 単一バイナリ配布可能。ゴルーチンとの親和性も高い |
-| **Rust** | `crossterm` / `termion` | 高速・堅牢。型安全にキーイベントをハンドリング |
+| **Rust** | `crossterm` / `termion` / `Tauri v2` | 高速・堅牢。CLI版に加え、イベント駆動コア＋`xterm.js`の独立デスクトップアプリ構成も実装 |
 | **Java** | `jline3` または `System.console()` + ANSI | オブジェクト指向で設計しやすい。JLineで簡単にTUI化 |
 | **PHP** | `stty` 呼び出し + `fgetc(STDIN)` / `readline` | CLIスクリプトとして手軽に動く。Web開発者のCLI入門に |
 | **TypeScript (Bun / Node.js)** | `process.stdin.setRawMode(true)` / `Bun.write` | **Bun推奨**（tsconfig不要・`bun run editor.ts`だけで1秒起動。40分開発に最適）。Node.jsでも`tsx`で同様に動作可能 |
@@ -155,6 +155,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── bash/               # inzm.sh (Bash版: ed/ex風ラインエディタ, sed/awk/Readline活用)
 │   ├── python/             # inzm.py (Python版: JOE/ZOE風, WordStarキーバインド, FSD Amoebaリスペクト)
 │   ├── rust/               # inzm (Rust版: MinEd風, Unicodeファーストクラス, 書記素クラスタ完全対応)
+│   ├── tauri-rust/         # inzm-tauri (Rust + Tauri v2 + xterm.js: 独立デスクトップアプリ, タブUI & 範囲選択)
 │   ├── java/               # inzm (Java版: Gosling Emacs & Mocklisp, RSyntaxTextAreaハイライト)
 │   ├── lua/                # inzm.lua (Lua版: micro風モダンPC操作 & コマンドバー, フルLua実装)
 │   ├── moonbit/            # inzm.mbt (MoonBit版: WasmGC + xterm.js ブラウザアプリ & WASI Preview 1 CLI)
