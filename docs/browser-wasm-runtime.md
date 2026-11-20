@@ -98,14 +98,14 @@ Raw Mode 化 ─► loop { render(); key = blocking_read_key(); handle(key); } �
   - **注意**: `Cmd+Q` / `Cmd+W` / `Cmd+T` / `Cmd+R` はブラウザ・OS が予約しているため Web アプリ側で奪えません。終了系は `Ctrl+Q` を残します。
 
 ### 落とし穴 ④：マウスクリック移動 & 「カーソルを引っ張らない」ホイールスクロール
-- **クリック移動**: コアの画面開始時に SGR 1006 拡張マウスモード（`\x1b[?1000h\x1b[?1006h`、終了時に `\x1b[?1006l\x1b[?1000l`）を有効化すると、`xterm.js` が左クリックを `\x1b[<0;col;rowM`、ホイールを `\x1b[<64;col;rowM` / `\x1b[<65;col;rowM` としてそのまま `onData` に送ってくれます（※範囲選択したいときは `Shift+ドラッグ`）。
+- **クリック移動**: コアの画面開始時に SGR 1006 拡張マウスモード（`\x1b[?1000h\x1b[?1006h`、ドラッグ範囲選択も取る場合は `\x1b[?1002h\x1b[?1006h`、終了時は `\x1b[?1006l\x1b[?1002l\x1b[?1000l`）を有効化すると、`xterm.js` が左クリックを `\x1b[<0;col;rowM`、ドラッグを `\x1b[<32;col;rowM`、ホイールを `\x1b[<64;col;rowM` / `\x1b[<65;col;rowM` としてそのまま `onData` に送ってくれます（※ブラウザ側のコピー用テキスト選択を使いたい場合は `Shift+ドラッグ`）。
 - **全角文字の列計算**: クリックされた画面列から行番号ガター幅を引き、`col_offset` を足した表示カラム幅を各文字の表示幅（1セル / 2セル）で積算して文字インデックスへ変換します。
 - **ホイールスクロール設計のコツ**:
   - ホイールでカーソル行（`cursor_y`）ごと動かしてしまうと「行移動」になってしまい、元の編集箇所を見失います。
   - **`render()` 内に `ensure_cursor_visible()` を書かない**のが鉄則です。ホイール時は `row_offset` だけを増減して `ensure_cursor_visible()` を呼ばず、カーソルが画面外に出たら `\x1b[?25l` のままカーソルを非表示にします。その後、文字入力・矢印キー・クリック時に `ensure_cursor_visible()` を呼べば、編集位置へ自然に視線が復帰します。
 
 ### 落とし穴 ⑤：文字列受け渡しとバイナリサイズ（WasmGC vs 線形メモリ）
-- **WasmGC (`use-js-builtin-string`)**: JS String Builtins（`builtins: ["js-string"]`, `importedStringConstants: "_"`）を使うと、JS の `String` をコピー・ポインタ変換なしで直接 WASM 関数に渡せ、MoonBit では外部インポートゼロ・約 18 KB の `.wasm` としてビルドできます（Chrome 130+ / Edge 130+ / Firefox 134+ 等）。
+- **WasmGC (`use-js-builtin-string`)**: JS String Builtins（`builtins: ["js-string"]`, `importedStringConstants: "_"`）を使うと、JS の `String` をコピー・ポインタ変換なしで直接 WASM 関数に渡せ、MoonBit では外部インポートゼロ・約 28〜30 KB の `.wasm` としてビルドできます（Chrome 130+ / Edge 130+ / Firefox 134+ 等）。
 - **線形メモリ WASI (`--target wasm`)**: Safari や古いブラウザを含む全環境互換を狙う場合や `wasmtime` でも動かす場合は、UTF-8 バイト列を線形メモリ経由で受け渡します。その際、GC/RC 言語では「ポインタだけ取り出したバッファが FFI 呼び出し前に自動解放されないよう、呼び出し後も参照を保持する」点に注意が必要です（詳細は [guides/moonbit.md](../guides/moonbit.md) 参照）。
 
 ---

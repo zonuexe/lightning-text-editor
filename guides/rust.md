@@ -98,4 +98,4 @@ fs::write("sample.txt", out)?;
 1. **端末サイズ変更 (`Event::Resize`) とペースト (`Event::Paste`)**:
    - `crossterm::event::read()` はキーだけでなく `Event::Resize(cols, rows)` も返すため、`match` で拾って再描画するだけでリサイズ対応が完了します（Bracketed Paste を使う場合は `EnableBracketedPaste` / `DisableBracketedPaste` を併用）。
 2. **`content.lines()` と保存時の末尾改行**:
-   - `str::lines()` は最後の `\n` を切り捨てるため、保存時に `lines.join("\n")` のまま書き戻すと末尾改行が消えます（空ファイルとの区別や CRLF の正規化も意識するとより堅牢です）。
+   - `str::lines()` は最後の `\n` を切り捨てるため、保存時に `lines.join("\n")` のまま書き戻すと末尾改行が消えます（空ファイルとの区別や CRLF の正規化も意識するとより堅牢です）。参照実装: [examples/rust/](../examples/rust/) / [examples/tauri-rust/](../examples/tauri-rust/)（Tauri + `xterm.js` 版）。

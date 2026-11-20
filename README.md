@@ -11,7 +11,7 @@
 > **「エディタを作りたい」**
 
 AIがあなた専任のメンターとして起動し、以下を対話しながら40分で動くオリジナルエディタを一緒に作り上げます：
-1. **言語の選択**: TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Bash, C など何でもOK！
+1. **言語の選択**: TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Lua, Bash, C など何でもOK！
 2. **ターゲット環境**: ローカルのターミナル CLI、または **WASM 経由のブラウザアプリ（`xterm.js` 等）**
    - ※ ブラウザランタイムを選んだ場合でも、`<input type="file">` やドラッグ＆ドロップ、File System Access API を使って**手元のローカルファイルを開いて編集・保存**できます。
 3. **エディタの名前**: あなたの好きなオリジナル名を命名
@@ -109,25 +109,26 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 | 言語 | ターミナル制御・入力手法 | 特徴・おすすめポイント |
 | :--- | :--- | :--- |
 | **Ruby** | `io/console` (`IO#raw`, `IO#getch`) | 標準ライブラリだけで驚くほど数行でRaw Modeとキー取得が書ける |
-| **Python** | `termios` + `tty` / `sys.stdin` | 標準モジュールのみで完結。スクリプト1つで即実行可能 |
+| **Python** | `termios` + `tty` + `os.read` | 標準モジュールのみで完結。スクリプト1つで即実行可能 |
 | **Go** | `golang.org/x/term` | 単一バイナリ配布可能。ゴルーチンとの親和性も高い |
 | **Rust** | `crossterm` / `termion` / `Tauri v2` | 高速・堅牢。CLI版に加え、イベント駆動コア＋`xterm.js`の独立デスクトップアプリ構成も実装 |
 | **Java** | `jline3` または `System.console()` + ANSI | オブジェクト指向で設計しやすい。JLineで簡単にTUI化 |
-| **PHP** | `stty` 呼び出し + `fgetc(STDIN)` / `readline` | CLIスクリプトとして手軽に動く。Web開発者のCLI入門に |
+| **PHP** | `stty` 呼び出し + `fgetc(STDIN)` | CLIスクリプトとして手軽に動く。Web開発者のCLI入門に |
 | **TypeScript (Bun / Node.js)** | `process.stdin.setRawMode(true)` / `Bun.write` | **Bun推奨**（tsconfig不要・`bun run editor.ts`だけで1秒起動。40分開発に最適）。Node.jsでも`tsx`で同様に動作可能 |
-| **MoonBit (WASM / WASI)** | イベント駆動コア + `xterm.js` (WasmGC) / `wasip1` | 同じコアコードからブラウザアプリ（約18KB）と WASI CLI バイナリの両方をビルド可能 |
-| **Zig** | `std.posix.termios` / `wasm32-freestanding` | 明示的 `Allocator` による Piece Table・無制限 Undo/Redo・約31KB のブラウザ WASM |
+| **MoonBit (WASM / WASI)** | イベント駆動コア + `xterm.js` (WasmGC) / `wasip1` | 同じコアコードからブラウザアプリ（約29KB）と WASI CLI バイナリの両方をビルド可能 |
+| **Zig** | `std.posix.termios` / `wasm32-freestanding` | 明示的 `Allocator` による Piece Table・無制限 Undo/Redo・約54KB のブラウザ WASM |
 | **C** | `<termios.h>` | ターミナルの低レイヤ制御を極めたい人向けの王道 |
 
-※ 上記以外の言語（Elixir, Kotlin, Zig, Swift 等）でも、ターミナルの生モード切り替えと標準入出力さえあれば同様のパターンで実装可能です。
+※ 上記以外の言語（Elixir, Kotlin, Swift 等）でも、ターミナルの生モード切り替えと標準入出力さえあれば同様のパターンで実装可能です。
 ※ **ブラウザ（WASM + `xterm.js`）ターゲット**で作りたい場合は、ビルドが速く単体 `.wasm` を出しやすい **MoonBit / Rust (`wasm-bindgen`) / Go (TinyGo) / Zig / AssemblyScript / C** などがおすすめです（詳細は [`docs/browser-wasm-runtime.md`](docs/browser-wasm-runtime.md) を参照）。
 
 ---
 
-## 📂 本リポジトリの構成（予定）
+## 📂 本リポジトリの構成
 
 ```text
 ├── README.md               # プロジェクト概要・コンセプト（本ファイル）
+├── AGENTS.md               # AIメンター用の最優先トリガーと行動指針
 ├── docs/                   # ターミナル基礎知識・技術ドキュメント
 │   ├── raw-mode.md         # ターミナルのRaw Modeとは（stty / termiosの仕組み）
 │   ├── ansi-escapes.md     # よく使うANSIエスケープシーケンス一覧
@@ -160,8 +161,8 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── lua/                # inzm.lua (Lua版: micro風モダンPC操作 & コマンドバー, フルLua実装)
 │   ├── moonbit/            # inzm.mbt (MoonBit版: WasmGC + xterm.js ブラウザアプリ & WASI Preview 1 CLI)
 │   └── zig/                # inzm.zig (Zig版: Piece Table + 無制限Undo/Redo + Live Inspector + wasm32-freestanding)
-├── prompts/                # AI進行用プロンプト・ファシリテーション定義
-└── skills/                 # pi / Claude Code / エージェント用スキル定義
+└── skills/                 # AIエージェント用スキル定義
+    └── lightning-editor/SKILL.md
 ```
 
 ---
@@ -169,7 +170,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 ## 🤝 このリポジトリの使い方
 
 1. **AIエージェントに進行役を任せる場合**:
-   - 本リポジトリのプロンプト/スキルを読み込ませたAIに「テキストエディタを作りたい」と話しかけるだけで、AIがメンターとして40分の対話開発をリードします。
+   - 本リポジトリの `AGENTS.md` / `skills/` を読み込ませたAIに「テキストエディタを作りたい」と話しかけるだけで、AIがメンターとして40分の対話開発をリードします。
 2. **教材・カリキュラムとして使う場合**:
    - 各ステップのドキュメントとアーキテクチャ設計を参考に、ハンズオンイベントや勉強会の教材として利用できます。
 

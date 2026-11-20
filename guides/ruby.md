@@ -21,41 +21,45 @@ ruby editor.rb
 require 'io/console'
 
 def cleanup
-  print "\e[2J\e[H\e[?25h" # 画面クリア & カーソル再表示
+  $stdout.write "\e[2J\e[H\e[?25h\e[0m" # 画面クリア & カーソル再表示 & 装飾リセット
+  $stdout.flush
 end
-
-at_exit { cleanup }
 
 # $stdin.raw ブロック内は自動的に生モードになり、
 # 例外発生や終了時には自動でCooked Modeに戻る
 $stdin.raw do |io|
-  cleanup
-  print "エディタ起動！ Ctrl+Q で終了\r\n"
+  begin
+    cleanup
+    $stdout.write "エディタ起動！ Ctrl+Q で終了\r\n"
+    $stdout.flush
 
-  loop do
-    char = io.getch
+    loop do
+      char = io.getch
 
-    # Ctrl+Q (\x11) または Ctrl+C (\x03) で終了
-    break if char == "\x11" || char == "\x03"
+      # Ctrl+Q (\x11) または Ctrl+C (\x03) で終了
+      break if char == "\x11" || char == "\x03"
 
-    # エスケープシーケンス（矢印キーなど）のハンドリング
-    if char == "\e"
-      seq1 = io.read_nonblock(1, exception: false)
-      seq2 = io.read_nonblock(1, exception: false) if seq1 == "["
+      # エスケープシーケンス（矢印キーなど）のハンドリング
+      if char == "\e"
+        seq1 = IO.select([io], nil, nil, 0.05) ? io.read_nonblock(1, exception: false) : nil
+        seq2 = (seq1 == "[" && IO.select([io], nil, nil, 0.05)) ? io.read_nonblock(1, exception: false) : nil
 
-      case seq2
-      when "A" then # 上矢印
-      when "B" then # 下矢印
-      when "C" then # 右矢印
-      when "D" then # 左矢印
+        case seq2
+        when "A" then # 上矢印
+        when "B" then # 下矢印
+        when "C" then # 右矢印
+        when "D" then # 左矢印
+        end
+      elsif char == "\r" || char == "\n"
+        # 改行処理
+      elsif char == "\x7f" || char == "\x08"
+        # Backspace
+      else
+        # 通常の文字入力
       end
-    elsif char == "\r" || char == "\n"
-      # 改行処理
-    elsif char == "\x7f" || char == "\x08"
-      # Backspace
-    else
-      # 通常の文字入力
     end
+  ensure
+    cleanup # Cooked Mode へ戻る前に必ず制御シーケンスを flush する
   end
 end
 ```
@@ -91,4 +95,4 @@ File.write("sample.txt", lines.join("\n") + "\n")
 3. **改行の出力は `print "\r\n"` を徹底する**:
    - `puts` は端末生モード下では `\r` を伴わない場合があるため、明示的に `print "...\r\n"` を使用します。
 4. **`\e` 後の `read_nonblock` と `WINCH` / `TERM` シグナル**:
-   - SSH 越し等で `\e` と `[A` が別パケットで届くと直後の `read_nonblock` で取りこぼすことがあるため、`IO.select([io], nil, nil, 0.05)` で短時間待ってから判定すると安定します。また `Signal.trap("WINCH")` でリサイズ検知する場合は、ハンドラ内ではフラグ更新に留めてメインループ側で再描画します。
+   - SSH 越し等で `\e` と `[A` が別パケットで届くと直後の `read_nonblock` で取りこぼすことがあるため、`IO.select([io], nil, nil, 0.05)` で短時間待ってから判定すると安定します。また `Signal.trap("WINCH")` でリサイズ検知する場合は、ハンドラ内ではフラグ更新に留めてメインループ側で再描画します（参照実装: [examples/ruby/](../examples/ruby/)）。

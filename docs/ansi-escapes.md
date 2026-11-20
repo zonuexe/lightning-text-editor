@@ -118,20 +118,22 @@ function render(lines: string[], cursorX: number, cursorY: number) {
   output += "\x1b[?25l";   // 1. カーソル隠す
   output += "\x1b[H";      // 2. 左上へ移動
 
-  // 3. テキスト行の描画
+  // 3. テキスト行の描画（ガター幅は描画とカーソル計算で単一の値を使う）
+  const gutterDigits = Math.max(3, String(lines.length).length);
+  const gutterWidth = gutterDigits + 1; // "%*d "
   for (let i = 0; i < lines.length; i++) {
-    output += `\x1b[90m${(i + 1).toString().padStart(3, " ")} \x1b[0m`; // 行番号
+    output += `\x1b[90m${(i + 1).toString().padStart(gutterDigits, " ")} \x1b[0m`; // 行番号
     output += sanitizeForTerminal(lines[i]).text; // 制御文字(\x1b等)や\tは可視化・展開して出力
     output += "\x1b[K\r\n"; // 行末まで消して改行
   }
 
   // 4. ステータスバーの描画（右端の自動折り返し・最下行スクロール防止のため幅制御を推奨）
-  output += "\x1b[7m -- キミのエディタ (Ctrl+Q: 終了, Ctrl+S: 保存) -- \x1b[0m\x1b[K";
+  output += "\x1b[7m -- キミのエディタ (Ctrl+Q: 終了, Ctrl+S: 保存) -- \x1b[0m\x1b[K\x1b[J";
 
-  // 5. カーソル位置を元の場所へ（制御文字・タブ展開後の表示幅 + 行番号4列オフセット）
+  // 5. カーソル位置を元の場所へ（制御文字・タブ展開後の表示幅 + ガター幅 + 1-indexed補正）
   const prefix = Array.from(lines[cursorY] ?? "").slice(0, cursorX).join("");
   const visualX = sanitizeForTerminal(prefix).width;
-  output += `\x1b[${cursorY + 1};${visualX + 5}H`;
+  output += `\x1b[${cursorY + 1};${gutterWidth + visualX + 1}H`;
   output += "\x1b[?25h";   // 6. カーソル再表示
   output += "\x1b[?2026l"; // 7. 同期描画終了（一括反映）
 

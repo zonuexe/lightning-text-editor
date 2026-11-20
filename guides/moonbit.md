@@ -64,7 +64,7 @@ test "insert_char" {
 ```
 
 - 文字列操作には `Array[Char]`（`for ch in s { ... }` で Unicode スカラー値列挙、`String::from_array(...)`）を使い、サロゲート／マルチバイト境界を壊さないようにします。
-- `*.mbt` ファイルと `moon.pkg` は同じパッケージディレクトリに配置し、`moon test` 実行時に `Total tests > 0` でテストが実際に認識・通過していることを確認してください（`moon.pkg` のない `src/` 等へソースを置くと 0 件テスト・空ビルド通過の罠に陥ります）。
+- `*.mbt` ファイルと `moon.pkg` は同じパッケージディレクトリに配置し、`moon test` 実行時にテストが実際に認識・通過していること（`Total tests > 0`）を確認してください（`moon.pkg` のない `src/` 等へソースを置くとテストが検出されず空ビルドになることがあります）。
 
 ---
 
@@ -130,6 +130,6 @@ fn wasi_fd_read(
    - **SKK 系 IME（AquaSKK / macSKK）の「`aaa` → `aaa`」問題**: `xterm.js` は通常文字の `keydown` で即座に `preventDefault()` するため、漢字変換（composition）を開始せず直接 `insertText` する SKK 入力がバイパスされます。単一文字キーおよび macOS の `Ctrl+J` は `attachCustomKeyEventHandler` で `preventDefault()` せずに `return false` し、`term.textarea` の `input` イベント（`inputType === "insertText"`）から確定文字を受け取ることで解決できます。
    - **macOS `Option` キー**: `macOptionIsMeta: true` を全体に有効にすると JIS キーボードの `Option+¥`（`\`）等が入力できなくなるため、`Option+矢印` / `Option+Backspace/Delete` だけを個別に制御シーケンスへマップします。
 5. **マウスクリック & ビューポート専用ホイールスクロール**:
-   - SGR 1006（`\x1b[?1000h\x1b[?1006h`）を有効にすると、`xterm.js` ブラウザ版と WASI CLI 版の両方でクリック移動・ホイールスクロールが動きます。ホイール時は `row_offset` のみ更新し、`render()` 内で無条件に `ensure_cursor_visible()` を呼ばないことで「カーソルを引っ張らずに画面だけスクロール」できます（ブラウザ全体の設計指針は [docs/browser-wasm-runtime.md](../docs/browser-wasm-runtime.md) を参照）。
+   - SGR 1006（`\x1b[?1000h\x1b[?1006h`、ドラッグ選択も取る場合は `\x1b[?1002h\x1b[?1006h`）を有効にすると、`xterm.js` ブラウザ版と WASI CLI 版の両方でクリック移動・ホイールスクロールが動きます。ホイール時は `row_offset` のみ更新し、`render()` 内で無条件に `ensure_cursor_visible()` を呼ばないことで「カーソルを引っ張らずに画面だけスクロール」できます（ブラウザ全体の設計指針は [docs/browser-wasm-runtime.md](../docs/browser-wasm-runtime.md) を参照）。
 6. **`$HOME/.moon/bin` の PATH 解決**:
    - `bun run` 等から呼ばれる非ログインシェルでも動くよう、`package.json` スクリプトや `run-wasi.sh` で `PATH="$HOME/.moon/bin:$PATH"` を補っておくと安心です。

@@ -13,7 +13,7 @@
    - `(insert-string "...")`, `(beginning-of-line)`, `(end-of-line)`, `(kill-to-end-of-line)`, `(message "...")` などの Gosmacs 伝統プリミティブを網羅。
 2. **RSyntaxTextArea による本格シンタックスハイライト（他言語フル対応！）**:
    - Java 界で長年愛される名門字句解析エンジン RSyntaxTextArea をヘッドレス統合。
-   - **本リポジトリで登場するすべての言語を完全網羅**：
+   - **本リポジトリの主要な言語群を幅広くカバー**：
      - **PHP** (`.php`), **Shell** (`.sh`, `.bash`, `.zsh`), **Go** (`.go`), **Rust** (`.rs`), **TypeScript** (`.ts`, `.tsx`)
      - **Java** (`.java`), **Python** (`.py`), **Ruby** (`.rb`), **C/C++** (`.c`, `.cpp`), **Lisp** (`.ml`, `.lisp`, `.cl`)
      - **Markdown** (`.md`), **JSON** (`.json`), **YAML** (`.yml`), **SQL** (`.sql`), **Dockerfile**, **Makefile**
@@ -34,7 +34,7 @@
 cd examples/java
 ./inzm sample.txt
 ```
-（または `./gradlew run --args="sample.txt"`）
+（※ `./inzm` が自動ビルド後に TTY 直結で起動します。`./gradlew run` 経由では Gradle デーモンが TTY 入力と干渉する場合があるため直接起動を推奨）
 
 初回実行時に自動でビルドされ、以降はネイティブ端末（TTY）直結で瞬時に起動します。
 

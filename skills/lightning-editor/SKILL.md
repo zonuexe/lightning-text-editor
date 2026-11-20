@@ -27,8 +27,8 @@ metadata:
    - QuickRun 等で外部コマンドへ端末を譲るときは、一度 Raw Mode / 代替画面を解除（`leave`）し、終了後に再有効化（`enter`）します。
 5. **ファイル由来の制御文字をそのまま端末に出さない**:
    - バッファ内の `\x1b` や制御文字は `^[` 等へ可視化し、`\t` はタブ幅分のスペースに展開して描画します（端末制御の乗っ取り・座標ズレ防止）。
-6. **スタブ逃げ・架空テスト・未再検証を禁止し、必ず実実行で確認する**:
-   - 端末 I/O や保存処理をコメント・モックで置き換えたり、`handleKey("dd")` のような非現実的なトークンや `Total tests: 0` の空テストを通過扱いにしたりせず、1キーずつの実入力・実ファイル保存内容・PTY 実行結果を**最後の編集後にも**確認してから次へ進みます。
+6. **未接続スタブのままにせず、1キーずつの実動作を編集ごとに確認する**:
+   - 端末 I/O や保存処理をコメント・ダミー関数で置き換えたり、非現実的な擬似入力だけで確認を済ませたりせず、1キーずつの実入力・実ファイル保存内容・端末実行結果を**最後の編集後にも**確認してから次へ進みます。
 
 ---
 
@@ -45,7 +45,7 @@ metadata:
 始める前に、あなたの好みを **4つ（+ 実行先）** 教えてください：
 
 1. **実装言語と実行ターゲットはどうしますか？**
-   - 好きな言語でOKです（TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Lua, Bash, C など）
+   - 好きな言語でOKです（TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Lua, Bash, C など）
    - 実行先も選べます：**ローカルのターミナル（CLI）** / **ブラウザ（WASM + `xterm.js`）** / **両方（コア共有）**
      - ブラウザを選んでも、ローカルファイルを開いて編集・保存できます！
      - ブラウザ WASM 向けには、ビルドが速く手軽な **MoonBit / Rust / Go (TinyGo) / Zig / AssemblyScript / C** などがおすすめです（[`docs/browser-wasm-runtime.md`](../../docs/browser-wasm-runtime.md) 参照）
@@ -128,7 +128,7 @@ WASM（MoonBit `--target wasm-gc` / Rust `wasm-bindgen` / Go・TinyGo / Zig / As
 User: 「エディタを作りたい」
 AI: 「最高ですね！『史上最速でキミだけのテキストエディタを実装しよう』へようこそ！🎉
      始める前に、あなたの好みを4つ教えてください：
-     1. 実装言語 (TypeScript, Python, Ruby, Go, Rust, Java, PHP, Lua, Bash, C など)
+     1. 実装言語と実行ターゲット (TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Lua, Bash, C 等 / CLI または WASM)
      2. エディタの名前
      3. どこから動かしたいか (見た目 / 入力 / ロジック)
      4. 操作感 (スタンダード / Vim風 / Emacs風 / nano風)」
@@ -175,7 +175,7 @@ AI: 「承知しました！名前は『NanoPy』にしましょう。
 4. **🎨 簡易シンタックスハイライト**:
    - コメントやキーワード、文字列を正規表現で色付けしてIDE感を演出。
 5. **🔍 Git Diff ビューア**:
-   - `Ctrl+D` で `git diff --color` を排他画面で実行して差分確認。
+   - `:diff` / `Ctrl+Shift+D` 等で `git diff --color` を排他画面で実行して差分確認。
 6. **📑 マルチバッファ & タブ UI**:
    - `Buffer` 構造体を配列化して複数ファイルを同時編集し、Row 1 タブバーと `Ctrl+N/P` で切り替え（`docs/extension-ideas.md` 3-3 / `examples/go/` 参照）。
 7. **🖍 範囲選択（Shift+矢印 / ドラッグ選択）**:

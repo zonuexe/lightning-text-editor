@@ -1,6 +1,6 @@
 # inzm.py - Python (JOE / ZOE: WordStar風 & FSD Amoeba リスペクト) 実装サンプル
 
-外部ライブラリ一切不要（pip不要、Python標準のみ）！
+Python 標準ライブラリのみでも動作し、`uv run` 等を使えば外部依存 `editorconfig` も自動で統合できます！
 Unixの分散OS「Amoeba」（後年のオープンソース版 FSD Amoeba）に移植されていた名作エディタ **[JOE (Joe's Own Editor)](https://joe-editor.sourceforge.io/)** にリスペクトを捧げた、**Zonu's Own Editor (ZOE)** 実装サンプルです。
 
 ---

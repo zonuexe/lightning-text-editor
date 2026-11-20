@@ -45,7 +45,7 @@ stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef
    - `stty sane` のような決め打ちリセットはユーザーの元設定を上書きしてしまいます。可能なら `tcgetattr` や `stty -g` で取得した**起動前の設定そのもの**へ戻します。
    - `atexit` / `finally` / `defer` / `Drop` に加え、`SIGINT` / `SIGTERM` / `SIGHUP` でも復元処理が走るようにします。
 3. **「出力フラッシュ → 端末復元」の順を守る**:
-   - 終了時はまず通常画面バッファ復帰（`\x1b[?1049l`）、マウス・Bracketed Paste 解除（`\x1b[?1006l\x1b[?1000l\x1b[?2004l`）、カーソル再表示（`\x1b[?25h`）、色リセット（`\x1b[0m`）を出力して **`flush` してから** Cooked Mode に戻します。
+   - 終了時はまず通常画面バッファ復帰（`\x1b[?1049l`）、マウス・Bracketed Paste 解除（`\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?2004l`）、カーソル再表示（`\x1b[?25h`）、色リセット（`\x1b[0m`）を出力して **`flush` してから** Cooked Mode に戻します。
 4. **万が一壊れた場合の救済コマンド**:
    - 画面が壊れたら、見えなくても `reset`（または `stty sane`）とタイプして Enter を押せば復旧します。
 
@@ -71,27 +71,32 @@ end
 
 ### TypeScript / Bun (`process.stdin.setRawMode`)
 ```typescript
+if (!process.stdin.isTTY) process.exit(1);
 process.stdin.setRawMode(true);
 process.stdin.resume();
 
-// 終了時に必ず復元
+// 終了時は制御シーケンスを返してから Cooked Mode に戻す
 process.on("exit", () => {
-  process.stdin.setRawMode(false);
+  process.stdout.write("\x1b[?25h\x1b[0m");
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
 });
 ```
 
 ### Python (`termios` + `tty`)
 ```python
-import sys, tty, termios
+import os, sys, tty, termios
 
+if not sys.stdin.isatty():
+    sys.exit(1)
 fd = sys.stdin.fileno()
 old_settings = termios.tcgetattr(fd)
 
 try:
     tty.setraw(fd)
-    ch = sys.stdin.read(1)
+    ch = os.read(fd, 1)
 finally:
-    # 必ず元に戻す
+    sys.stdout.write("\x1b[?25h\x1b[0m")
+    sys.stdout.flush()
     termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 ```
 
@@ -111,6 +116,10 @@ defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 ### PHP (`stty`)
 ```php
+if (!stream_isatty(STDIN)) {
+    fwrite(STDERR, "Not a TTY\n");
+    exit(1);
+}
 // 起動前の端末設定を保存してから生モード化
 $origStty = trim((string)shell_exec('stty -g'));
 system('stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef');

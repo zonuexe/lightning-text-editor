@@ -18,7 +18,7 @@ zig build run
 
 ## ⌨️ ターミナル生モード (`std.posix.tcgetattr` / `tcsetattr`)
 
-Zig 0.17 では `termios` のフラグが `packed struct` として定義されており、ビットマスク演算ではなくフィールド名で安全にオン/オフできます：
+Zig 0.17.1+ では `termios` のフラグが `packed struct` として定義されており、ビットマスク演算ではなくフィールド名で安全にオン/オフできます：
 
 ```zig
 const std = @import("std");
@@ -40,6 +40,7 @@ fn enableRawMode() !void {
 }
 
 fn disableRawMode() void {
+    // 実際のアプリでは \x1b[?1049l\x1b[?25h\x1b[0m を標準出力へ flush してから復元する
     std.posix.tcsetattr(std.posix.STDIN_FILENO, .FLUSH, orig_termios) catch {};
 }
 ```

@@ -15,8 +15,10 @@ uv run inzm.py sample.py
 
 ### 伝統手法: Python 3 標準
 ```bash
-python3 inzm.py sample.py
+python3 editor.py sample.txt
 ```
+
+※ 完成サンプル全体は [`examples/python/`](../examples/python/) をご覧ください（`uv run inzm.py sample.py` で起動可能）。
 
 ---
 
@@ -28,52 +30,37 @@ import os
 import sys
 import tty
 import termios
-import atexit
 import codecs
 import select
 import signal
 
-fd = sys.stdin.fileno()
-old_settings = termios.tcgetattr(fd)
-utf8_dec = codecs.getincrementaldecoder("utf-8")("replace")
-char_buf = ""
-
-def cleanup():
-    sys.stdout.write("\x1b[2J\x1b[H\x1b[?25h")
-    sys.stdout.flush()
-    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-atexit.register(cleanup)
-signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-
-def read_char_timeout(timeout=None):
-    global char_buf
-    while not char_buf:
+def read_char_timeout(fd, utf8_dec, char_buf, timeout=None):
+    while not char_buf[0]:
         if timeout is not None and not select.select([fd], [], [], timeout)[0]:
             return None
         chunk = os.read(fd, 1024)
         if not chunk:
-            char_buf += utf8_dec.decode(b"", final=True)
-            if not char_buf:
+            char_buf[0] += utf8_dec.decode(b"", final=True)
+            if not char_buf[0]:
                 return ""
             break
-        char_buf += utf8_dec.decode(chunk)
-    ch, char_buf = char_buf[0], char_buf[1:]
+        char_buf[0] += utf8_dec.decode(chunk)
+    ch, char_buf[0] = char_buf[0][0], char_buf[0][1:]
     return ch
 
-def read_key():
-    ch = read_char_timeout(None)
+def read_key(fd, utf8_dec, char_buf):
+    ch = read_char_timeout(fd, utf8_dec, char_buf, None)
     if not ch:
         return ""
     if ch == "\x1b":
         # 50ms以内に後続が来なければ単独の Esc キーとして確定（ハング防止）
-        ch2 = read_char_timeout(0.05)
+        ch2 = read_char_timeout(fd, utf8_dec, char_buf, 0.05)
         if not ch2:
             return "\x1b"
         if ch2 == "[":
             seq = "\x1b["
             while True:
-                c = read_char_timeout(0.05)
+                c = read_char_timeout(fd, utf8_dec, char_buf, 0.05)
                 if not c:
                     break
                 seq += c
@@ -83,36 +70,59 @@ def read_key():
         return "\x1b" + ch2
     return ch
 
-# 生モードに切り替え
-tty.setraw(fd)
-sys.stdout.write("\x1b[2J\x1b[H\x1b[?25h")
-sys.stdout.write("エディタ起動！ Ctrl+Q で終了\r\n")
-sys.stdout.flush()
+def main():
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        sys.exit("Not a TTY")
 
-while True:
-    key = read_key()
-    if not key:  # EOF
-        break
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    utf8_dec = codecs.getincrementaldecoder("utf-8")("replace")
+    char_buf = [""]
+    cleaned_up = False
 
-    # Ctrl+Q (\x11) または Ctrl+C (\x03) で終了
-    if key in ("\x11", "\x03"):
-        break
+    def cleanup():
+        nonlocal cleaned_up
+        if cleaned_up:
+            return
+        cleaned_up = True
+        sys.stdout.write("\x1b[2J\x1b[H\x1b[?25h\x1b[0m")
+        sys.stdout.flush()
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
-    if key == "\x1b[A":  # 上矢印
-        pass
-    elif key == "\x1b[B":  # 下矢印
-        pass
-    elif key == "\x1b[C":  # 右矢印
-        pass
-    elif key == "\x1b[D":  # 左矢印
-        pass
-    elif key in ("\r", "\n"):  # Enter
-        pass
-    elif key in ("\x7f", "\x08"):  # Backspace
-        pass
-    else:
-        # 通常の文字入力
-        pass
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
+    try:
+        # 生モードに切り替え
+        tty.setraw(fd)
+        sys.stdout.write("\x1b[2J\x1b[H\x1b[?25h")
+        sys.stdout.write("エディタ起動！ Ctrl+Q で終了\r\n")
+        sys.stdout.flush()
+
+        while True:
+            key = read_key(fd, utf8_dec, char_buf)
+            if not key or key in ("\x11", "\x03"):  # EOF / Ctrl+Q / Ctrl+C
+                break
+
+            if key == "\x1b[A":  # 上矢印
+                pass
+            elif key == "\x1b[B":  # 下矢印
+                pass
+            elif key == "\x1b[C":  # 右矢印
+                pass
+            elif key == "\x1b[D":  # 左矢印
+                pass
+            elif key in ("\r", "\n"):  # Enter
+                pass
+            elif key in ("\x7f", "\x08"):  # Backspace
+                pass
+            else:
+                # 通常の文字入力
+                pass
+    finally:
+        cleanup()
+
+if __name__ == "__main__":
+    main()
 ```
 
 ---

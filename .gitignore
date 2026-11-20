@@ -21,11 +21,5 @@ __pycache__/
 build/
 
 
-# Test memos
-memo.txt
-loop.ts
-test_*.*
-*.tmp
-
 # OS files
 .DS_Store

@@ -26,8 +26,9 @@ clang -Wall -Wextra main.c -o editor
 struct termios orig_termios;
 
 void disable_raw_mode(void) {
-    // 画面クリアしてカーソル表示、ターミナル設定を元に戻す
-    write(STDOUT_FILENO, "\x1b[2J\x1b[H\x1b[?25h", 11);
+    // 画面クリアしてカーソル表示・色リセット、その後ターミナル設定を元に戻す
+    const char seq[] = "\x1b[2J\x1b[H\x1b[?25h\x1b[0m";
+    write(STDOUT_FILENO, seq, sizeof(seq) - 1);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
@@ -51,7 +52,8 @@ void enable_raw_mode(void) {
 int main(void) {
     enable_raw_mode();
     write(STDOUT_FILENO, "\x1b[2J\x1b[H", 7);
-    write(STDOUT_FILENO, "Cエディタ起動！ Ctrl+Q で終了\r\n", 40);
+    const char banner[] = "Cエディタ起動！ Ctrl+Q で終了\r\n";
+    write(STDOUT_FILENO, banner, sizeof(banner) - 1);
 
     char c;
     while (1) {

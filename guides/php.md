@@ -20,6 +20,13 @@ php editor.php
 <?php
 // editor.php
 
+if (!stream_isatty(STDIN) || !stream_isatty(STDOUT)) {
+    fwrite(STDERR, "Not a TTY\n");
+    exit(1);
+}
+// stream_select() と fgetc() 併用時のバッファ先読みによる取りこぼしを防止
+stream_set_read_buffer(STDIN, 0);
+
 // 元の端末設定を保存してから生モード有効化（フロー制御・CR->NL変換・端末シグナルを無効化）
 $origStty = trim((string)shell_exec('stty -g'));
 system("stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef");
@@ -107,3 +114,14 @@ $lines = file_exists($filename) ? file($filename, FILE_IGNORE_NEW_LINES) : [""];
 // 保存
 file_put_contents($filename, implode("\n", $lines));
 ```
+
+---
+
+## ⚠️ 実装時のよくある落とし穴 (Common Pitfalls)
+
+1. **`stream_select` と `fgetc(STDIN)` のバッファリング不整合を防ぐ**:
+   - `stream_set_read_buffer(STDIN, 0)` を呼ばずに `fgetc(STDIN)` を実行すると、PHP のストリーム層が 1 チャンクを先読みして `stream_select()` が後続バイトなしと誤認する場合があります。
+2. **全角文字幅の計算 (`mb_strwidth()`)**:
+   - PHP の `mb_strwidth()` は East Asian Ambiguous 文字（`※`, `α` 等）を幅 2 として扱うため、端末が非 EAW の場合はカーソルズレが起きます（起動時の DSR プローブ対策は `docs/unicode-and-width.md` および [examples/php/](../examples/php/) を参照）。
+3. **シグナル（`SIGINT` / `SIGTERM`）時の端末復元**:
+   - `register_shutdown_function` だけでは `SIGTERM` 等で強制終了した際に呼ばれないことがあります。`pcntl_async_signals(true)` + `pcntl_signal()` を併用し、ANSI 復帰と `fflush(STDOUT)` を行ってから `stty` で元設定に戻してください。

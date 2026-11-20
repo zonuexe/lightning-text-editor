@@ -26,7 +26,7 @@ SKK 等の直接入力系 IME・漢字変換・クリック移動・macOS ショ
 2. WASI Preview 1 CLI (wasmtime 等の WASI ランタイム)
 
 主な操作 (macOS / ブラウザ):
-- クリック / ホイール   : クリック位置へカーソル移動 / スクロール (Shift+ドラッグで範囲選択)
+- クリック / ホイール   : クリック位置へカーソル移動 / スクロール (ドラッグで範囲選択 / Shift+ドラッグでブラウザ選択)
 - Cmd+S / Ctrl+S      : ブラウザ保存 (localStorage)
 - Cmd+← / Cmd+→       : 行頭 / 行末 (Ctrl+A / Ctrl+E も可)
 - Cmd+↑ / Cmd+↓       : ファイル先頭 / 末尾

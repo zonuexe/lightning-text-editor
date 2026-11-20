@@ -29,7 +29,7 @@ Bun と TypeScript を使った、フルスクリーン対応・スクロール�
 
 ```bash
 cd examples/bun-ts
-bun install   # shiki のインストール (初回のみ)
+bun install   # shiki / editorconfig のインストール (初回のみ)
 bun run inzm.ts inzm.ts
 ```
 
