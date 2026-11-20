@@ -11,7 +11,7 @@
 > **「エディタを作りたい」**
 
 AIがあなた専任のメンターとして起動し、以下を対話しながら40分で動くオリジナルエディタを一緒に作り上げます：
-1. **言語の選択**: TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Swift, Lua, Bash, C など何でもOK！
+1. **言語の選択**: TypeScript/Bun, Python, Ruby, Go, Rust, Java, Kotlin, PHP, MoonBit, Zig, Swift, Lua, Bash, C など何でもOK！
 2. **ターゲット環境**: ローカルのターミナル CLI、または **WASM 経由のブラウザアプリ（`xterm.js` 等）**
    - ※ ブラウザランタイムを選んだ場合でも、`<input type="file">` やドラッグ＆ドロップ、File System Access API を使って**手元のローカルファイルを開いて編集・保存**できます。
 3. **エディタの名前**: あなたの好きなオリジナル名を命名
@@ -113,6 +113,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 | **Go** | `golang.org/x/term` | 単一バイナリ配布可能。ゴルーチンとの親和性も高い |
 | **Rust** | `crossterm` / `termion` / `Tauri v2` | 高速・堅牢。CLI版に加え、イベント駆動コア＋`xterm.js`の独立デスクトップアプリ構成も実装 |
 | **Java** | `jline3` または `System.console()` + ANSI | オブジェクト指向で設計しやすい。JLineで簡単にTUI化 |
+| **Kotlin** | `stty` + `InputStream` 生バイト読み取り | 2ストローク操作 (`Ctrl+E`)・Action Bar・循環 Kill Ring を備えた jEdit 風 TUI |
 | **PHP** | `stty` 呼び出し + `fgetc(STDIN)` | CLIスクリプトとして手軽に動く。Web開発者のCLI入門に |
 | **TypeScript (Bun / Node.js)** | `process.stdin.setRawMode(true)` / `Bun.write` | **Bun推奨**（tsconfig不要・`bun run editor.ts`だけで1秒起動。40分開発に最適）。Node.jsでも`node editor.ts`（22.18+）や`tsx`で同様に動作可能 |
 | **MoonBit (WASM / WASI)** | イベント駆動コア + `xterm.js` (WasmGC) / `wasip1` | 同じコアコードからブラウザアプリ（約29KB）と WASI CLI バイナリの両方をビルド可能 |
@@ -120,7 +121,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 | **Swift (AppKit)** | `NSApplication` + `NSTextView` + `InzmCore` | CotEditor 風 macOS ネイティブUI（`⌘` 標準ショートカット・文字情報・書記素対応） |
 | **C** | `<termios.h>` | ターミナルの低レイヤ制御を極めたい人向けの王道 |
 
-※ 上記以外の言語（Elixir, Kotlin 等）でも、ターミナルの生モード切り替えと標準入出力さえあれば同様のパターンで実装可能です。
+※ 上記以外の言語（Elixir 等）でも、ターミナルの生モード切り替えと標準入出力さえあれば同様のパターンで実装可能です。
 ※ **ブラウザ（WASM + `xterm.js`）ターゲット**で作りたい場合は、ビルドが速く単体 `.wasm` を出しやすい **MoonBit / Rust (`wasm-bindgen`) / Go (TinyGo) / Zig / AssemblyScript / C** などがおすすめです（詳細は [`docs/browser-wasm-runtime.md`](docs/browser-wasm-runtime.md) を参照）。
 
 ---
@@ -159,6 +160,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 │   ├── rust/               # inzm (Rust版: MinEd風, Unicodeファーストクラス, 書記素クラスタ完全対応)
 │   ├── tauri-rust/         # inzm-tauri (Rust + Tauri v2 + xterm.js: 独立デスクトップアプリ, タブUI & 範囲選択)
 │   ├── java/               # inzm (Java版: Gosling Emacs & Mocklisp, RSyntaxTextAreaハイライト)
+│   ├── kotlin/             # inzm (Kotlin版: jEdit風 2ストローク操作・Action Bar・循環Kill Ring)
 │   ├── lua/                # inzm.lua (Lua版: micro風モダンPC操作 & コマンドバー, フルLua実装)
 │   ├── moonbit/            # inzm.mbt (MoonBit版: WasmGC + xterm.js ブラウザアプリ & WASI Preview 1 CLI)
 │   ├── swift/              # inzm (Swift + AppKit版: CotEditor風 macOSネイティブエディタ & Unicode文字情報)

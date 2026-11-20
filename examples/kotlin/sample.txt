@@ -1,0 +1,21 @@
+# inzm.kt — jEdit-inspired Kotlin TUI Editor with Kill Ring
+
+Kotlin + Gradle 製ターミナルテキストエディタへようこそ！
+jEdit 風の 2 ストロークキー（Ctrl+E）・Action Bar・連続結合＆循環置換できる Kill Ring を試せます。
+
+- キル＆ヤンク:
+  - Ctrl+K       : 行末までキル（連続 Ctrl+K で Kill Ring 先頭エントリへ連結！）
+  - Ctrl+Y       : 最新エントリを貼り付け (Yank)
+  - Alt+Y (Esc y): 直前の貼り付けを Kill Ring の過去履歴で順次差し替え (Yank-Pop)
+  - Alt+W (Esc w): 選択範囲をキルせず Kill Ring へコピー
+- jEdit 風 2 ストローク & Action Bar:
+  - Ctrl+E Ctrl+K : Kill Ring 一覧を開いて番号/矢印で選択挿入
+  - Ctrl+E d      : 現在行を複製 | Ctrl+E x: 現在行を丸ごとキル
+  - Ctrl+E n / p  : バッファ切り替え
+  - F2 / Esc Enter: Action Bar (`save`, `open <file>`, `goto <line>`, `killring`, `eaw`, `quit`)
+
+Unicode Check: 日本語 漢字 🍣 👨‍👩‍👧‍👦 (タブ	と	制御文字確認)
+fun hello(name: String): String {
+    // ここで Ctrl+K を2回押してから別の行へ移動し Ctrl+Y → Alt+Y を試してみよう
+    return "Hello, $name!"
+}

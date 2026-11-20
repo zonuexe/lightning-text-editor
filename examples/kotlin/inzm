@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# inzm - Kotlin版 (jEdit風操作 & Kill Ring) 起動スクリプト
+# GradleデーモンによるTTY遮断を避け、ネイティブ端末直結で起動します
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ ! -x "$DIR/build/install/inzm/bin/inzm" ]]; then
+    (cd "$DIR" && ./gradlew installDist -q)
+fi
+
+exec "$DIR/build/install/inzm/bin/inzm" "$@"
