@@ -112,6 +112,6 @@ process.stdout.write(renderedString);
    - 生モード下では `\n` は「1行下がるだけ」でカーソルが左端に戻りません。必ず `\r\n` を出力します。
 4. **`data` チャンクの分断・結合とリサイズに備える**:
    - 高速なキー連打や貼り付け時には `\x1b[A\x1b[B` が 1 回の `data` イベントにまとまって届いたり、SSH 越しでは `\x1b` と `[A` に分断されたりします。本番実装ではストリームパーサ（と `process.stdout.on("resize", ...)` による再描画）を組み合わせます。
-5. **サロゲートペア破壊と「モックテスト逃げ」を避ける**:
+5. **サロゲートペア破壊と「モックテスト逃げ」・TTY 密結合を避ける**:
    - `line.length` や `line.slice()` は UTF-16 コードユニット単位のため、`🍣` 等の絵文字を壊します。`Array.from(line)`（コードポイント配列）でインデックス操作してください。
-   - Vim 風の `dd` 等をテストする際も、現実の端末入力は 1 文字ずつ届くため、`handleKey("dd")` のような架空の 2 文字トークンではなく `handleKey("d"); handleKey("d")`（`pendingKey` 遷移）で実装・テストします。また `:w` や描画をモックのまま終わらせないでください。
+   - `EditorCore` クラスのコンストラクタで `init()`（`stdin.isTTY` 判定・`setRawMode`・`process.exit`）を即実行するとテストからインスタンス化できなくなります。I/O 起動は `if (import.meta.main) runCli()` に分離し、`EditorCore` 自身の `handleKey("d"); handleKey("d")`（`pendingKey` 遷移）や `:w` の実ファイル保存・`render()` 出力まで単体テストで検証してください。

@@ -39,7 +39,7 @@ import {
 ```
 
 ```moonbit
-// src/editor.mbt
+// editor.mbt （moon.pkg と同じディレクトリに置く。サブディレクトリを使う場合は各ディレクトリにも moon.pkg が必要）
 pub struct Editor {
   mut lines : Array[String]
   mut cursor_x : Int
@@ -64,6 +64,7 @@ test "insert_char" {
 ```
 
 - 文字列操作には `Array[Char]`（`for ch in s { ... }` で Unicode スカラー値列挙、`String::from_array(...)`）を使い、サロゲート／マルチバイト境界を壊さないようにします。
+- `*.mbt` ファイルと `moon.pkg` は同じパッケージディレクトリに配置し、`moon test` 実行時に `Total tests > 0` でテストが実際に認識・通過していることを確認してください（`moon.pkg` のない `src/` 等へソースを置くと 0 件テスト・空ビルド通過の罠に陥ります）。
 
 ---
 
@@ -117,8 +118,9 @@ fn wasi_fd_read(
 
 ## ⚠️ 実装時のよくある落とし穴 (Common Pitfalls)
 
-1. **WASI には `termios`（Raw Mode）と端末サイズ取得 API がない**:
+1. **WASI には `termios`（Raw Mode）と端末サイズ取得 API がない（＆非 ASCII 入力の扱い）**:
    - `wasmtime` 等をそのまま起動するとシェルが Cooked Mode のままになり、1文字ずつ入力が届きません。CLI 起動時はラッパースクリプトで `stty raw -echo` を設定し、`trap` で終了時に必ず元へ戻してください（`examples/moonbit/run-wasi.sh` 参照）。
+   - WASI の `fd_read` で読み込んだバイト列をコアへ渡す際は、`if b < 128` 等で非 ASCII バイトを捨てず、UTF-8 増分デコードを通して日本語等も扱えるようにします。
 2. **`moon.mod` / `moon.pkg` 形式と文字列リテラルの `\u{1B}`**:
    - 最近の MoonBit ツールチェーンでは旧 `moon.mod.json` が非推奨/非サポートになっており、DSL 形式の `moon.mod` / `moon.pkg` を使います。また、文字列内のエスケープ文字は `\x1b` ではなく `\u{1B}` を使うと警告が出ません。
 3. **`--target wasm` の線形メモリ FFI でバッファが早期解放される問題**:
