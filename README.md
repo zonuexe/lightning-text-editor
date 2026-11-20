@@ -176,9 +176,10 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 
 ---
 
-## Copyright
+## Copyright & License
 
-[lightning-text-editor](https://github.com/zonuexe/lightning-text-editor) © 2026 by [USAMI Kenta &lt;tadsan@zonu.me&gt;](https://github.com/zonuexe) is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+[lightning-text-editor](https://github.com/zonuexe/lightning-text-editor) © 2026 by [USAMI Kenta &lt;tadsan@zonu.me&gt;](https://github.com/zonuexe).
 
-本リポジトリに含まれるドキュメント、教材、およびサンプルコードは、[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)（クリエイティブ・コモンズ 表示 - 継承 4.0 国際）ライセンスの下で公開されています。詳細は [LICENSE](LICENSE) をご覧ください。
+- **ドキュメント・教材・スキル本文**（`README.md`, `AGENTS.md`, `docs/`, `guides/`, `skills/` 内のテキスト）: **[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)**（クリエイティブ・コモンズ 表示 - 継承 4.0 国際）。詳細は [LICENSE](LICENSE) をご覧ください。
+- **ソフトウェア・サンプルコード**（`examples/` 以下の実装、およびドキュメント・ガイド内のソースコード例）: **[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)**（Apache License, Version 2.0）。詳細は [LICENSE-APACHE](LICENSE-APACHE) をご覧ください。
 

@@ -2,6 +2,7 @@
   "name": "inzm-zig-web",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "build:wasm": "zig build wasm && mkdir -p web/public && cp zig-out/web/inzm.wasm web/public/inzm.wasm",

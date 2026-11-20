@@ -3,6 +3,7 @@ name = "inzm-tauri"
 version = "0.1.0"
 description = "Lightning Text Editor - Rust + Tauri Desktop App"
 edition = "2021"
+license = "Apache-2.0"
 
 [lib]
 name = "inzm_tauri_lib"

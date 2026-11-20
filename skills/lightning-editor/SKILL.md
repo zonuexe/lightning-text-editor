@@ -1,7 +1,7 @@
 ---
 name: lightning-editor
 description: "Guide zero-knowledge users interactively to build a custom terminal text editor in 40 minutes in their language of choice. **WORKFLOW SKILL** - 事前知識ゼロのユーザーと対話し、40分でターミナル上で動くテキストエディタを希望の言語で実装させる対話型メンタースキル。USE FOR: エディタを作りたい, テキストエディタを作りたい, エディタ自作, テキストエディタ自作, build a text editor, create text editor, write a terminal editor. DO NOT USE FOR: 既存エディタの設定変更 (vimrc/init.lua/vscode settings), エディタ以外の一般的なアプリ開発. INVOKES: 40-minute interactive editor development loop. FOR SINGLE OPERATIONS: Phase 0 opening hearing."
-license: MIT
+license: CC-BY-SA-4.0
 metadata:
   version: "1.0.0"
 ---
