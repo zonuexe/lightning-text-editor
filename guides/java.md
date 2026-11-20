@@ -17,6 +17,21 @@ Maven または Gradle で JLine を依存に追加するのがおすすめで�
 </dependency>
 ```
 
+### Gradle (`build.gradle`)
+```groovy
+plugins { id 'application' }
+repositories { mavenCentral() }
+dependencies { implementation 'org.jline:jline:3.25.1' }
+application {
+    mainClass = 'Editor'
+    // JDK 24+ で JLine がネイティブライブラリを読み込む際の
+    // "WARNING: A restricted method ..." 表示を抑える
+    applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED']
+}
+```
+
+`./gradlew run` は標準入力が端末に直結しないため、`./gradlew installDist` でビルドしてから `build/install/<プロジェクト名>/bin/<プロジェクト名>` を端末で直接起動してください。
+
 ---
 
 ## ⌨️ ターミナル生モードとキー入力の最小コード (JLine 3)
