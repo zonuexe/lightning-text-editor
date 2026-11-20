@@ -136,9 +136,13 @@ import os
 filename = "sample.txt"
 if os.path.exists(filename):
     with open(filename, "r", encoding="utf-8") as f:
-        lines = [line.rstrip("\r\n") for line in f.readlines()]
+        lines = f.read().split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()  # 末尾の改行1つ分だけを外す（末尾の空行は残す）
 else:
-    lines = [""]
+    lines = []
+if not lines:
+    lines = [""]  # 空ファイルでもカーソル行が必ず存在するようにする
 
 # 保存
 with open(filename, "w", encoding="utf-8") as f:

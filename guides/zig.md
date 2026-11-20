@@ -28,11 +28,15 @@ var orig_termios: std.posix.termios = undefined;
 fn enableRawMode() !void {
     orig_termios = try std.posix.tcgetattr(std.posix.STDIN_FILENO);
     var raw = orig_termios;
-    raw.iflag.IXON = false;
-    raw.iflag.ICRNL = false;
+    raw.iflag.IXON = false; // Ctrl+S / Ctrl+Q のフロー制御を無効化
+    raw.iflag.ICRNL = false; // Enter(\r) を \n に変換しない
+    raw.iflag.BRKINT = false;
+    raw.iflag.INPCK = false;
+    raw.iflag.ISTRIP = false;
     raw.lflag.ECHO = false;
     raw.lflag.ICANON = false;
-    raw.lflag.ISIG = false;
+    raw.lflag.ISIG = false; // Ctrl+C / Ctrl+Z / Ctrl+\ をシグナルにしない
+    raw.lflag.IEXTEN = false; // Ctrl+V / Ctrl+O（macOS は Ctrl+Y も）を端末ドライバに食わせない
     raw.oflag.OPOST = false;
     raw.cc[@intFromEnum(std.posix.V.MIN)] = 1;
     raw.cc[@intFromEnum(std.posix.V.TIME)] = 0;
@@ -49,7 +53,13 @@ fn disableRawMode() void {
 
 ## 🌐 ブラウザ WASM 向け (`wasm32-freestanding`)
 
-`build.zig` で `.cpu_arch = .wasm32, .os_tag = .freestanding` を指定し、`std.heap.FixedBufferAllocator` を使うと、WASI シムも JS String Builtins も不要で全ブラウザ互換の超小型 `.wasm` が作れます（詳細は [docs/browser-wasm-runtime.md](../docs/browser-wasm-runtime.md) 参照）。
+`build.zig` で `.cpu_arch = .wasm32, .os_tag = .freestanding` を指定し、アロケータに `std.heap.wasm_allocator` を使うと、WASI シムも JS String Builtins も不要で全ブラウザ互換の超小型 `.wasm` が作れます（詳細は [docs/browser-wasm-runtime.md](../docs/browser-wasm-runtime.md) 参照）。
+
+`build.zig` を使わずに1ファイルだけ試す場合は、エントリポイントを持たないことと export を残すことを明示します：
+
+```bash
+zig build-exe -target wasm32-freestanding -fno-entry -rdynamic -O ReleaseSmall src/wasm.zig
+```
 
 ```zig
 // build.zig
@@ -70,5 +80,6 @@ wasm_exe.export_memory = true;
    - Zig のエディタコアは `Allocator` を引数で受け取る構造にしておくと、テスト時に `std.testing.allocator` を渡すだけで解放忘れ（特に Undo/Redo 履歴や文字列キャッシュ）を自動検出できます。
 2. **Zig 0.17 の `std.ArrayList` と `std.Io`**:
    - `std.ArrayList(T)` はアンマネージド形式（`.empty` 初期化、`.append(alloc, item)` 等）になっており、ファイル I/O は `main(init: std.process.Init)` で渡される `init.io` を `std.Io.Dir.cwd()` へ渡して行います。
-3. **WASM 側のメモリバッファサイズ**:
-   - `wasm32-freestanding` で `FixedBufferAllocator` を使う場合、大きなファイルや長い編集履歴を扱うときは静的ヒープサイズ（例: 4 MiB）と入力ステージングバッファの上限を意識し、`wasm_init` 時には `fba.reset()` で綺麗に初期化します。
+3. **WASM 側のアロケータに `FixedBufferAllocator` を使わない**:
+   - `FixedBufferAllocator` は**最後に確保した領域しか解放できません**。打鍵ごとに表示用キャッシュを作り直すような設計では解放されない領域が積み上がり、数百打鍵で確保に失敗して入力を受け付けなくなります。`wasm32-freestanding` では解放可能な `std.heap.wasm_allocator` を使い、確保失敗を JS 側へエラーとして返して画面に表示してください。
+   - JS 側からファイル内容を書き込むステージングバッファにも上限があるため、上限を超える内容は黙って切り詰めずに「大きすぎて開けない」とエラー表示します。

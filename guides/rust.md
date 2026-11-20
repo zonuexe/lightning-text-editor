@@ -20,7 +20,7 @@ cargo run
 // src/main.rs
 use crossterm::{
     cursor,
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
@@ -44,6 +44,10 @@ fn main() -> Result<()> {
 
     loop {
         if let Event::Key(key_event) = event::read()? {
+            // Windows ではキーを離したとき（Release）にもイベントが届くので、押下だけを処理する
+            if key_event.kind != KeyEventKind::Press {
+                continue;
+            }
             // Ctrl+Q で終了
             if key_event.modifiers.contains(KeyModifiers::CONTROL) && key_event.code == KeyCode::Char('q') {
                 break;
@@ -56,8 +60,12 @@ fn main() -> Result<()> {
                 KeyCode::Right => { /* 右矢印 */ }
                 KeyCode::Enter => { /* 改行 */ }
                 KeyCode::Backspace => { /* 削除 */ }
-                KeyCode::Char(c) => {
+                // Ctrl / Alt 付きの文字（Ctrl+A 等）は本文に挿入しない
+                KeyCode::Char(c)
+                    if !key_event.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
                     // 文字入力
+                    let _ = c;
                 }
                 _ => {}
             }
@@ -75,8 +83,13 @@ fn main() -> Result<()> {
 ```rust
 use std::fs;
 
-// 読み込み
-let content = fs::read_to_string("sample.txt").unwrap_or_default();
+// 読み込み（ファイルが無いときだけ空バッファ。非 UTF-8 などで読めないときは開くのを中止する。
+// unwrap_or_default() で握りつぶすと空バッファで開き、保存した瞬間に中身が消える）
+let content = match fs::read_to_string("sample.txt") {
+    Ok(s) => s,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    Err(e) => return Err(e),
+};
 let lines: Vec<String> = if content.is_empty() {
     vec![String::new()]
 } else {

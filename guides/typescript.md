@@ -81,22 +81,30 @@ if (import.meta.main) {
 
 ### Bunネイティブの場合（超シンプル）
 ```typescript
-// 読み込み
-const text = await Bun.file("sample.txt").text();
+// 読み込み（ファイルが無ければ空バッファ。末尾の改行を1つ外してから行に分割する）
+const file = Bun.file("sample.txt");
+const text = (await file.exists()) ? await file.text() : "";
+const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n"); // 空でも [""]
 
-// 書き込み（保存）
-await Bun.write("sample.txt", lines.join("\n"));
+// 書き込み（保存）: 末尾改行を付けて書き戻す（付けないと保存のたびに末尾改行が消える）
+await Bun.write("sample.txt", lines.join("\n") + "\n");
 ```
 
 ### Node.js互換の場合 (`fs/promises`)
 ```typescript
 import * as fs from "node:fs/promises";
 
-// 読み込み
-const text = await fs.readFile("sample.txt", "utf-8");
+// 読み込み（ENOENT のときだけ空バッファにする）
+let text = "";
+try {
+  text = await fs.readFile("sample.txt", "utf-8");
+} catch (e) {
+  if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+}
+const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n");
 
 // 書き込み（保存）
-await fs.writeFile("sample.txt", lines.join("\n"));
+await fs.writeFile("sample.txt", lines.join("\n") + "\n");
 ```
 
 ---

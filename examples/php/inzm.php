@@ -28,7 +28,7 @@ if (!function_exists('stream_isatty') || !stream_isatty(STDIN)) {
 }
 
 $origStty = trim((string)shell_exec('stty -g'));
-system("stty -icanon -echo -ixon -icrnl -iexten intr undef quit undef susp undef");
+system("stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0");
 echo "\x1b[?1049h\x1b[?2004h\x1b[2J\x1b[H"; // 代替画面バッファ & Bracketed Paste 有効化
 fflush(STDOUT);
 

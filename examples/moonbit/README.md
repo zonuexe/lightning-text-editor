@@ -8,7 +8,7 @@ MoonBit で実装された、**同じエディタコアから「ブラウザ上�
 
 1. **イベント駆動コア + 薄型ホスト（Browser / WASI 両対応アーキテクチャ）**:
    - コアパッケージ（`Editor`, `InputDecoder`, Unicode幅計算）は OS・WASI・DOM に一切依存しない純粋なステートマシンとして実装。
-   - **ブラウザ版 (`cmd/web`)**: `--target wasm-gc` + `use-js-builtin-string: true` で約 18 KB の `.wasm` にビルドし、`xterm.js` の `onData` / `onResize` とゼロコピー文字列受け渡しで直結（`SharedArrayBuffer` / COOP・COEP ヘッダ不要）。
+   - **ブラウザ版 (`cmd/web`)**: `--target wasm-gc` + `use-js-builtin-string: true` で約 30 KB の `.wasm` にビルドし、`xterm.js` の `onData` / `onResize` とゼロコピー文字列受け渡しで直結（`SharedArrayBuffer` / COOP・COEP ヘッダ不要）。
    - **WASI CLI 版 (`cmd/wasi`)**: `--target wasm` で純粋な `wasi_snapshot_preview1` インポートのみ（`fd_read`, `fd_write`, `args_get`, `environ_get`, `path_open`, `fd_close`）を使った約 37 KB の単一 `.wasm` バイナリを生成し、`wasmtime` 等でそのまま動作。
 2. **日本語・絵文字のセル幅計算 & EAW トグル (`Ctrl+T`)**:
    - 全角文字（ひらがな・カタカナ・漢字・絵文字）を 2 セル、結合文字を 0 セルとして水平スクロールやカーソル座標を追従。

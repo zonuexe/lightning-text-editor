@@ -14,7 +14,7 @@
 | **`trim_trailing_whitespace`** | `true` / `false` | **ファイル保存時**: 各行の末尾にある不要な半角スペース・タブを除去 |
 | **`indent_style`** | `space` / `tab` | **Tabキー押下時**: スペース文字列を挿入するか、タブ文字 `\t` を挿入するか |
 | **`indent_size`** / **`tab_width`** | `2`, `4`, `8` | **Tabキー押下時 & 画面描画時**: インデントの幅 |
-| **`end_of_line`** | `lf` / `crlf` / `cr` | **ファイル保存時**: 改行コード（`\n` または `\r\n`）の統一 |
+| **`end_of_line`** | `lf` / `crlf` / `cr` | **ファイル保存時**: 改行コード（`\n` / `\r\n` / `\r`）の統一 |
 | **`charset`** | `utf-8` / `latin1` 等 | **ファイル読み書き時**: エンコーディング |
 
 ---
@@ -42,6 +42,6 @@
 | **TypeScript (Bun)** | **`editorconfig` (公式 npm)** | `import editorconfig from "editorconfig"`<br>`const conf = await editorconfig.parse(filepath)` |
 | **Go** | **`editorconfig-core-go/v2` (公式)** | `github.com/editorconfig/editorconfig-core-go/v2`<br>`def, _ := editorconfig.GetDefinitionForFilename(filepath)` |
 | **Python** | **`editorconfig` (公式 PyPI)** | `from editorconfig import get_properties`<br>`conf = get_properties(os.path.abspath(filepath))` |
-| **Ruby** | **`editorconfig` (公式 gem)** または バンドル | `require 'editorconfig'`<br>`conf = EditorConfig.resolve(filepath)` |
+| **Ruby** | **`editorconfig` (公式 gem)** または バンドル | `require 'editorconfig'`<br>`conf = EditorConfig.load_file(filepath)` |
 | **Java** | **`org.ec4j.core:ec4j-core`** または バンドル | Maven/Gradle で導入し、ASTまたは設定マップを取得 |
-| **Bash / PHP / Lua** | **組み込み軽量パーサー** | 外部依存なしで単一ファイル完結させるため、約50行のミニINI＋Globパーサーを内蔵 |
+| **Bash / PHP / Lua** | **組み込み軽量パーサー** | 外部依存なしで単一ファイル完結させるため、約50行のミニINI＋Globパーサーを内蔵する方針（同梱の `examples/bash`・`php`・`lua` には未実装） |

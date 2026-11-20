@@ -31,7 +31,7 @@ Raw Mode 化 ─► loop { render(); key = blocking_read_key(); handle(key); } �
                 │  - init(cols, rows, file, content)   │
                 │  - on_data(input)  -> ANSI String    │
                 │  - on_resize(cols, rows) -> ANSI     │
-                │  - take_save_request() / content()   │
+                │  - take_save_request()/get_content() │
                 └──────────┬───────────────┬───────────┘
                            │               │
          ┌─────────────────┘               └─────────────────┐
@@ -56,10 +56,10 @@ Raw Mode 化 ─► loop { render(); key = blocking_read_key(); handle(key); } �
 
 | 言語 | ビルド手段・ツール | 特徴・ブラウザ連携のしやすさ |
 | :--- | :--- | :--- |
-| **MoonBit** | `moon build --target wasm-gc` | **最軽量クラス（約18KB）**。`use-js-builtin-string` で JS 文字列をゼロコピー受け渡しでき、WASI CLI とも共有しやすい（[examples/moonbit/](../examples/moonbit/)） |
+| **MoonBit** | `moon build --target wasm-gc` | **最軽量クラス（約30KB）**。`use-js-builtin-string` で JS 文字列をゼロコピー受け渡しでき、WASI CLI とも共有しやすい（[examples/moonbit/](../examples/moonbit/)） |
 | **Rust** | `wasm-pack` / `wasm-bindgen` (`wasm32-unknown-unknown`) | エコシステムが充実。`#[wasm_bindgen]` だけで `String` を取る関数を自動バインドでき、ビルドも高速 |
 | **Go / TinyGo** | `GOOS=js GOARCH=wasm go build` / `tinygo build -target=wasm` | 標準の `go` だけで `wasm_exec.js` 経由のブラウザ実行が可能。サイズを小さくしたい場合は TinyGo が便利 |
-| **Zig** | `zig build-exe -target wasm32-freestanding` | ツールチェーン単体で外部依存なく超高速ビルド・極小 `.wasm` を生成可能（線形メモリ経由で文字列をやり取り） |
+| **Zig** | `zig build-exe -target wasm32-freestanding -fno-entry -rdynamic -O ReleaseSmall` | ツールチェーン単体で外部依存なく超高速ビルド・極小 `.wasm` を生成可能（線形メモリ経由で文字列をやり取り） |
 | **AssemblyScript** | `npx asc` | TypeScript に近い構文から数秒で `.wasm` にコンパイルでき、JS/TS 開発者が入りやすい |
 | **C / C++** | `clang --target=wasm32` / Emscripten | 環境があればすぐ単体 `.wasm` を生成可能（文字列受け渡しは線形メモリ上のポインタ＋長さで設計） |
 
@@ -114,7 +114,7 @@ Raw Mode 化 ─► loop { render(); key = blocking_read_key(); handle(key); } �
 
 「ブラウザ版ではローカルファイルを扱えないのでは？」と思われがちですが、ブラウザ標準の Web API を使うことで**手元のローカルファイルを普通に開いて編集・保存できます**。
 
-コア側では直接ディスクを触らず、**「ファイル内容の読み込み（`load_file(name, content)`）」「保存要求フラグ（`take_save_request()`）」「内容取得（`content()`）」** だけを公開し、実際の I/O はホスト側に委譲します：
+コア側では直接ディスクを触らず、**「ファイル内容の読み込み（`load_file(name, content)`）」「保存要求フラグ（`take_save_request()`）」「内容取得（`get_content()`）」** だけを公開し、実際の I/O はホスト側に委譲します：
 
 ### 1. 全ブラウザ共通の方法（[examples/moonbit/](../examples/moonbit/) で実装済み）
 - **開く**: `<input type="file">`（またはドラッグ＆ドロップ）で `await file.text()` を読み込み、`wasm.load_file(file.name, text)` へ渡す。

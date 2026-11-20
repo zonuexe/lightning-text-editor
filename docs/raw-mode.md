@@ -15,22 +15,24 @@
 | **Ctrl+C / Ctrl+Z / Ctrl+\\** | OSが割り込み信号（SIGINT / SIGTSTP / SIGQUIT）として拾う | **ただの1バイト（`\x03` 等）の文字として受け取れる**（`ISIG` 無効時） |
 | **Ctrl+S / Ctrl+Q** | **XOFF/XON フロー制御として端末が画面出力を一時停止/再開する** | **`-ixon` を指定しないとエディタにキーが届かない** |
 | **Enter (`\r`) の扱い** | `\r` が自動的に `\n` に変換される（`ICRNL`） | **`-icrnl` を指定しないと `Ctrl+M` と `Ctrl+J` が区別できない** |
+| **Ctrl+V / Ctrl+O / Ctrl+Y** | 端末ドライバの拡張機能（`IEXTEN`）が「次の1文字をリテラル化（`lnext`）」「出力破棄（`discard`）」「遅延サスペンド（macOS の `dsusp`）」として横取りする | **`-iexten` を指定しないとエディタにキーが届かない**（nano の `^O` 保存や Emacs の `C-y` が壊れる） |
 
 ---
 
-## ⚠️ フロー制御（`-ixon`）と改行変換（`-icrnl`）の無効化
+## ⚠️ シグナル（`-isig`）・拡張処理（`-iexten`）・フロー制御（`-ixon`）・改行変換（`-icrnl`）の無効化
 
-ターミナルの歴史的遺産として、**`Ctrl+S`** は画面出力の一時停止（XOFF）、**`Ctrl+Q`** は出力再開（XON）として端末ドライバ自身が処理してしまいます。また `ICRNL` が有効なままだと、Enter キー（`\r`, `0x0d`）が `\n`（`0x0a`）に変換されて `Ctrl+J` と区別がつきません。
+ターミナルの歴史的遺産として、**`Ctrl+S`** は画面出力の一時停止（XOFF）、**`Ctrl+Q`** は出力再開（XON）として端末ドライバ自身が処理してしまいます。また `ICRNL` が有効なままだと、Enter キー（`\r`, `0x0d`）が `\n`（`0x0a`）に変換されて `Ctrl+J` と区別がつきません。さらに `IEXTEN` が有効なままだと `Ctrl+V` / `Ctrl+O`（macOS では `Ctrl+Y` も）が端末ドライバに食われます。
 
-テキストエディタで制御キーを正確に受け取るには、**`-ixon -icrnl`** を忘れずに無効化します。
+テキストエディタで制御キーを正確に受け取るには、**`-isig -iexten -ixon -icrnl`** をまとめて無効化します。
 
 ```bash
 # 推奨される生モード化コマンド（元の設定を stty -g で必ず退避してから実行）
 ORIG_STTY=$(stty -g)
-stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef
+stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0
 ```
 
-※ `stty` で `intr`/`quit`/`susp` を無効化（または `termios` で `ISIG` をオフ）にしない場合、ユーザーが `Ctrl+\`（`SIGQUIT`）や `Ctrl+Z`（`SIGTSTP`）を押した瞬間に終了処理を通らず異常終了・サスペンドして端末が壊れることがあります。
+※ `-isig` を付けないと、ユーザーが `Ctrl+\`（`SIGQUIT`）や `Ctrl+Z`（`SIGTSTP`）を押した瞬間に終了処理を通らず異常終了・サスペンドし、端末が壊れたまま残ることがあります。`intr undef quit undef susp undef` で個別に無効化する方法もありますが、macOS の `dsusp`（`Ctrl+Y`）など取りこぼしが出るため、`-isig` で一括無効化するほうが安全です。
+※ `min 1 time 0` は「1バイト届くまで待ち、届いたら即返す」設定です（`termios` の `VMIN=1` / `VTIME=0` に相当）。
 
 ---
 
@@ -122,7 +124,7 @@ if (!stream_isatty(STDIN)) {
 }
 // 起動前の端末設定を保存してから生モード化
 $origStty = trim((string)shell_exec('stty -g'));
-system('stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef');
+system('stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0');
 
 // 終了時に必ず元の設定へ復元
 register_shutdown_function(function () use ($origStty) {

@@ -1271,13 +1271,13 @@ public class Inzm {
                 ? "stty '" + origStty.replace("'", "'\\''") + "'"
                 : "stty sane";
         String cmd = enable
-                ? "stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef < /dev/tty"
+                ? "stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0 < /dev/tty"
                 : restoreCmd + " < /dev/tty";
         try {
             new ProcessBuilder("sh", "-c", cmd).inheritIO().start().waitFor();
         } catch (Exception e1) {
             try {
-                String fallback = enable ? "stty -icanon -echo -ixon -icrnl intr undef quit undef susp undef" : restoreCmd;
+                String fallback = enable ? "stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0" : restoreCmd;
                 new ProcessBuilder("sh", "-c", fallback).inheritIO().start().waitFor();
             } catch (Exception e2) {
                 System.err.println("Failed to configure terminal raw mode: " + e2.getMessage());

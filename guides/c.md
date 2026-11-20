@@ -40,8 +40,9 @@ void enable_raw_mode(void) {
 
     // 3. 元の設定を完全にコピーしてからフラグを倒す！
     struct termios raw = orig_termios;
-    raw.c_iflag &= ~(IXON | ICRNL);             // フロー制御(Ctrl+S/Q)やCR->NL変換を無効化
-    raw.c_lflag &= ~(ECHO | ICANON | ISIG);     // エコー、カノニカルモード、Ctrl+C/Z割り込みを無効化
+    raw.c_iflag &= ~(IXON | ICRNL | BRKINT | INPCK | ISTRIP); // フロー制御(Ctrl+S/Q)やCR->NL変換を無効化
+    raw.c_lflag &= ~(ECHO | ICANON | ISIG | IEXTEN);          // エコー、カノニカルモード、Ctrl+C/Z割り込み、
+                                                              // Ctrl+V/O（macOS は Ctrl+Y も）の拡張処理を無効化
     raw.c_cc[VMIN] = 1;                          // 1バイト届くまで待つ
     raw.c_cc[VTIME] = 0;
 
@@ -50,6 +51,10 @@ void enable_raw_mode(void) {
 }
 
 int main(void) {
+    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
+        fprintf(stderr, "Not a TTY\n");
+        return 1;
+    }
     enable_raw_mode();
     write(STDOUT_FILENO, "\x1b[2J\x1b[H", 7);
     const char banner[] = "Cエディタ起動！ Ctrl+Q で終了\r\n";
@@ -79,22 +84,25 @@ int main(void) {
 ```c
 #include <stdio.h>
 
-// 読み込み
-FILE *fp = fopen("sample.txt", "r");
-if (fp) {
+// 読み込み（ファイルが無ければ空バッファで開始）
+void load_file(const char *path) {
+    FILE *in = fopen(path, "r");
+    if (!in) return;
     char line[1024];
-    while (fgets(line, sizeof(line), fp)) {
-        // バッファに追加...
+    while (fgets(line, sizeof(line), in)) {
+        // 末尾の '\n' を取り除いてバッファに追加...
     }
-    fclose(fp);
+    fclose(in);
 }
 
-// 保存
-FILE *fp = fopen("sample.txt", "w");
-if (fp) {
-    // バッファを出力...
-    fputs("Hello World\n", fp);
-    fclose(fp);
+// 保存（書き込み・クローズの失敗を必ず確認する）
+int save_file(const char *path) {
+    FILE *out = fopen(path, "w");
+    if (!out) return -1;
+    // バッファの各行を出力...
+    int ok = fputs("Hello World\n", out) != EOF;
+    if (fclose(out) != 0) ok = 0;
+    return ok ? 0 : -1;
 }
 ```
 
