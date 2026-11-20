@@ -48,55 +48,124 @@ register_shutdown_function('cleanup');
 echo "\x1b[2J\x1b[H\x1b[?25h";
 echo "PHPエディタ起動！ Ctrl+Q で終了\r\n";
 
-function readByteTimeout(int $usec = 50000): ?string {
-    $read = [STDIN];
-    $write = $except = null;
-    if (@stream_select($read, $write, $except, 0, $usec) > 0) {
-        $ch = fgetc(STDIN);
-        return $ch === false ? null : $ch;
+$pending = ''; // 読みすぎたバイトを次のキーのために戻しておく
+
+// 1バイト読む。$usec を指定するとその時間内に届かなければ null
+function readByte(?int $usec = null): ?string {
+    global $pending;
+    if ($pending !== '') {
+        $b = $pending[0];
+        $pending = substr($pending, 1);
+        return $b;
     }
-    return null;
+    if ($usec !== null) {
+        $read = [STDIN];
+        $write = $except = null;
+        if (@stream_select($read, $write, $except, 0, $usec) < 1) {
+            return null;
+        }
+    }
+    $b = fgetc(STDIN);
+    return $b === false ? null : $b;
 }
 
-while (true) {
-    $c = fgetc(STDIN);
-    if ($c === false) {
-        break;
-    }
+function unreadByte(string $b): void {
+    global $pending;
+    $pending = $b . $pending;
+}
 
-    // Ctrl+Q (\x11) または Ctrl+C (\x03) で終了
-    if ($c === "\x11" || $c === "\x03") {
-        break;
-    }
-
-    // 特殊キー判定（50ms以内に後続が来なければ単独の Esc キー）
-    if ($c === "\x1b") {
-        $c2 = readByteTimeout(50000);
-        if ($c2 === '[') {
-            $seq = '';
-            while (($ch = readByteTimeout(50000)) !== null) {
-                $seq .= $ch;
-                $ord = ord($ch);
-                if ($ord >= 0x40 && $ord <= 0x7E) { // CSI 終端バイト
-                    break;
-                }
-            }
-            switch ($seq) {
-                case 'A': /* 上矢印 */ break;
-                case 'B': /* 下矢印 */ break;
-                case 'C': /* 右矢印 */ break;
-                case 'D': /* 左矢印 */ break;
-            }
+// 「1キー分」を返す: 通常文字は UTF-8 の1文字、特殊キーは ESC シーケンス丸ごと
+function readKey(): ?string {
+    while (true) {
+        $b = readByte();
+        if ($b === null) {
+            return null; // EOF
         }
-        continue;
+        if ($b === "\x1b") {
+            return readEscape();
+        }
+        $o = ord($b);
+        if ($o < 0x80) {
+            return $b;
+        }
+        // fgetc は1バイトずつ返すので、UTF-8 の先頭バイトから長さを決めて継続バイトを読み足す
+        $extra = match (true) {
+            $o >= 0xC2 && $o <= 0xDF => 1,
+            $o >= 0xE0 && $o <= 0xEF => 2,
+            $o >= 0xF0 && $o <= 0xF4 => 3,
+            default => 0,
+        };
+        if ($extra === 0) {
+            continue; // 先頭になれないバイトは捨てる
+        }
+        $s = $b;
+        for ($i = 0; $i < $extra; $i++) {
+            $c = readByte(50000);
+            if ($c === null) {
+                break;
+            }
+            if (ord($c) < 0x80 || ord($c) > 0xBF) {
+                unreadByte($c); // 継続バイトでなければ次のキーとして読み直す
+                break;
+            }
+            $s .= $c;
+        }
+        if (mb_check_encoding($s, 'UTF-8')) {
+            return $s;
+        }
+        // 壊れた UTF-8 は本文に入れずに捨てる
+    }
+}
+
+// ESC の後ろを読み、単独 Esc・Alt+文字・CSI / SS3 シーケンスを1キーにまとめる
+function readEscape(): string {
+    $b2 = readByte(50000);
+    if ($b2 === null) {
+        return "\x1b"; // 50ms 以内に後続が無ければ単独 Esc
+    }
+    if ($b2 === "\x1b" || ord($b2) >= 0x80) {
+        unreadByte($b2); // Esc+矢印・Alt+日本語など: Esc を単独で返し、残りは次のキーにする
+        return "\x1b";
+    }
+    if ($b2 === 'O') { // SS3（F1〜F4 等）は1バイトで終わる
+        return "\x1bO" . (readByte(50000) ?? '');
+    }
+    if ($b2 !== '[') {
+        return "\x1b" . $b2; // Alt+文字
+    }
+    $seq = "\x1b[";
+    while (($c = readByte(50000)) !== null) { // CSI は終端バイト（0x40..0x7E）まで読む
+        $seq .= $c;
+        if (strlen($seq) === 3 && $c === '[') {
+            continue; // Linux コンソールの F1〜F5（\x1b[[A 等）
+        }
+        if (ord($c) >= 0x40 && ord($c) <= 0x7E) {
+            break;
+        }
+    }
+    return $seq;
+}
+
+while (($key = readKey()) !== null) {
+    // Ctrl+Q (\x11) または Ctrl+C (\x03) で終了
+    if ($key === "\x11" || $key === "\x03") {
+        break;
     }
 
-    if ($c === "\r" || $c === "\n") {
-        // Enter
-    } elseif ($c === "\x7f" || $c === "\x08") {
-        // Backspace
-    } else {
-        // 通常の文字入力
+    switch ($key) {
+        case "\x1b[A": /* 上矢印 */ break;
+        case "\x1b[B": /* 下矢印 */ break;
+        case "\x1b[C": /* 右矢印 */ break;
+        case "\x1b[D": /* 左矢印 */ break;
+        case "\x1b":   /* 単独 Esc */ break;
+        case "\r":     /* Enter */ break;
+        case "\x7f":
+        case "\x08":   /* Backspace */ break;
+        default:
+            if ($key[0] === "\x1b" || ord($key[0]) < 0x20) {
+                break; // 未対応の特殊キー・制御文字は本文に入れない
+            }
+            // 通常の文字入力（$key は UTF-8 の1文字）
     }
 }
 ```
@@ -108,9 +177,18 @@ while (true) {
 PHPの標準関数で数行で完結します。
 
 ```php
-// 読み込み（空ファイルでも [""] になるよう explode を使う。file() は空ファイルで [] を返す）
+// 読み込み（ファイルが無いときだけ空バッファ。空ファイルでも [""] になるよう explode を使う。file() は空ファイルで [] を返す）
 $filename = "sample.txt";
-$text = is_file($filename) ? (string)file_get_contents($filename) : "";
+$text = "";
+if (file_exists($filename)) {
+    $read = @file_get_contents($filename);
+    if ($read === false) {
+        // 権限不足などで読めないファイルを空バッファで開くと、保存した瞬間に中身が消える
+        fwrite(STDERR, "Cannot read {$filename}\n");
+        exit(1);
+    }
+    $text = $read;
+}
 if (str_ends_with($text, "\n")) {
     $text = substr($text, 0, -1); // 末尾の改行を1つだけ外す（末尾の空行は残す）
 }

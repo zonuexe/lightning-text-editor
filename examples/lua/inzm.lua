@@ -172,8 +172,8 @@ local function set_raw_mode(enable)
             end
         end
         io.stdin:setvbuf("no")
-        -- -ixon: Ctrl+S/Q フロー制御無効化, -icrnl: CR->NL変換無効化, -iexten: ^O/^V/^Y等の拡張文字無効化, intr/quit/susp undef: Ctrl+C等を文字として受信
-        os.execute("stty -icanon -echo -ixon -icrnl -iexten intr undef quit undef susp undef min 1 time 0 < /dev/tty 2>/dev/null || stty -icanon -echo -ixon -icrnl -iexten intr undef quit undef susp undef min 1 time 0 2>/dev/null")
+        -- -isig: Ctrl+C/Z/\ を文字として受信, -iexten: ^O/^V/^Y等の拡張文字無効化, -ixon: Ctrl+S/Q フロー制御無効化, -icrnl: CR->NL変換無効化
+        os.execute("stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0 < /dev/tty 2>/dev/null || stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0 2>/dev/null")
     else
         if orig_stty then
             os.execute("stty '" .. orig_stty:gsub("'", "'\\''") .. "' < /dev/tty 2>/dev/null || stty sane 2>/dev/null")

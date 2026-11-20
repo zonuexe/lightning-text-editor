@@ -1,7 +1,7 @@
 # inzm.zig - Zig (Piece Table + 無制限 Undo/Redo + ライブ Inspector) 実装サンプル
 
 Zig (`0.17.1`) で実装された、既存サンプルの行配列モデル（`lines[]`）とは一線を画す **Piece Table（ピーステーブル）方式** のテキストエディタです。  
-**ネイティブ `termios` ターミナル CLI** と **WASI・外部依存すら不要な `wasm32-freestanding` ブラウザアプリ（約 31 KB）** の両方にビルドできます。
+**ネイティブ `termios` ターミナル CLI** と **WASI・外部依存すら不要な `wasm32-freestanding` ブラウザアプリ（約 55 KB）** の両方にビルドできます。
 
 ---
 
@@ -20,7 +20,7 @@ Zig (`0.17.1`) で実装された、既存サンプルの行配列モデル（`l
 4. **インクリメンタル検索 + マッチハイライト (`Ctrl+F` / `Cmd+F`)**:
    - 検索プロンプトに入力するたびに即座に次の一致位置へジャンプし、画面内の全一致箇所をハイライト表示（`Enter` / `F3` で次候補へ移動）。
 5. **ネイティブ `termios` CLI × `wasm32-freestanding` 極小ブラウザ版の両対応**:
-   - ブラウザ版は **`wasm32-freestanding` + `FixedBufferAllocator`** で外部インポートゼロ・約 31 KB の `.wasm` にビルドでき、Safari / Chrome / Firefox すべてのモダンブラウザで動作。
+   - ブラウザ版は **`wasm32-freestanding` + `std.heap.wasm_allocator`** で外部インポートゼロ・約 55 KB の `.wasm` にビルドでき、Safari / Chrome / Firefox すべてのモダンブラウザで動作。
    - ブラウザ版でも SKK 直接かな入力、macOS ショートカット、SGR 1006 クリック移動・ビューポート専用ホイールスクロール、ローカルファイル読込・保存に対応。
 
 ---

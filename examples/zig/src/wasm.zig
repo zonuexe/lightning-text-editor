@@ -2,9 +2,10 @@ const std = @import("std");
 const core = @import("inzm_core");
 const Editor = core.Editor;
 
-// Static heap for freestanding wasm32 (4 MiB). Zero WASI or OS dependencies.
-var heap_storage: [4 * 1024 * 1024]u8 = undefined;
-var fba = std.heap.FixedBufferAllocator.init(&heap_storage);
+// Growable heap for freestanding wasm32 (memory.grow). Zero WASI or OS dependencies.
+// FixedBufferAllocator can only free its most recent allocation, so per-keystroke
+// cache rebuilds would exhaust it after a few hundred keystrokes.
+const alloc = std.heap.wasm_allocator;
 
 var in_buf: [1024 * 1024]u8 = undefined;
 var fname_buf: [256]u8 = undefined;
@@ -44,7 +45,6 @@ export fn wasm_selected_ptr() [*]const u8 {
 
 export fn wasm_selected_len() usize {
     const ed = &(editor orelse return 0);
-    const alloc = fba.allocator();
     sel_buf.clearRetainingCapacity();
     const s = ed.selectedTextAlloc(alloc) catch return 0;
     defer alloc.free(s);
@@ -71,7 +71,6 @@ export fn wasm_take_save_request() u32 {
 }
 
 export fn wasm_init(cols: usize, rows: usize, fname_len: usize, content_len: usize) usize {
-    const alloc = fba.allocator();
     if (editor) |*ed| {
         ed.deinit();
         editor = null;
@@ -80,7 +79,6 @@ export fn wasm_init(cols: usize, rows: usize, fname_len: usize, content_len: usi
     out_buf = .empty;
     sel_buf.deinit(alloc);
     sel_buf = .empty;
-    fba.reset();
 
     const fname = fname_buf[0..@min(fname_len, fname_buf.len)];
     const content = in_buf[0..@min(content_len, in_buf.len)];

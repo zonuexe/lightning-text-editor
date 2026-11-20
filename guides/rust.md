@@ -60,9 +60,11 @@ fn main() -> Result<()> {
                 KeyCode::Right => { /* 右矢印 */ }
                 KeyCode::Enter => { /* 改行 */ }
                 KeyCode::Backspace => { /* 削除 */ }
-                // Ctrl / Alt 付きの文字（Ctrl+A 等）は本文に挿入しない
+                // Ctrl / Alt 付きの文字（Ctrl+A 等）は本文に挿入しない。
+                // ただし Windows の AltGr（独語配列の @ { [ 等）は Ctrl+Alt 同時押しとして届くので文字として通す
                 KeyCode::Char(c)
-                    if !key_event.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                    if !key_event.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                        || key_event.modifiers.contains(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
                 {
                     // 文字入力
                     let _ = c;
@@ -97,10 +99,9 @@ let lines: Vec<String> = if content.is_empty() {
 };
 
 // 保存（末尾改行を落とさないよう注意）
+// （"\n" だけのファイルも保存で消えないよう、常に末尾改行を付ける）
 let mut out = lines.join("\n");
-if !out.is_empty() {
-    out.push('\n');
-}
+out.push('\n');
 fs::write("sample.txt", out)?;
 ```
 

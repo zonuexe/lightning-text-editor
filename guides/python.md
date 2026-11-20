@@ -57,6 +57,12 @@ def read_key(fd, utf8_dec, char_buf):
         ch2 = read_char_timeout(fd, utf8_dec, char_buf, 0.05)
         if not ch2:
             return "\x1b"
+        if ch2 == "\x1b" or ord(ch2) >= 0x80:
+            # Esc+矢印・Alt+日本語など: Esc を単独で返し、残りは次のキーとして読み直す
+            char_buf[0] = ch2 + char_buf[0]
+            return "\x1b"
+        if ch2 == "O":  # SS3（F1〜F4 等）は1文字で終わる
+            return "\x1bO" + (read_char_timeout(fd, utf8_dec, char_buf, 0.05) or "")
         if ch2 == "[":
             seq = "\x1b["
             while True:
@@ -64,10 +70,12 @@ def read_key(fd, utf8_dec, char_buf):
                 if not c:
                     break
                 seq += c
+                if seq == "\x1b[[":  # Linux コンソールの F1〜F5（\x1b[[A 等）
+                    continue
                 if 0x40 <= ord(c) <= 0x7E:  # CSI 終端バイト
                     break
             return seq
-        return "\x1b" + ch2
+        return "\x1b" + ch2  # Alt+文字
     return ch
 
 def main():
@@ -115,6 +123,8 @@ def main():
                 pass
             elif key in ("\x7f", "\x08"):  # Backspace
                 pass
+            elif key.startswith("\x1b") or ord(key[0]) < 0x20 or key == "\ufffd":
+                pass  # 未対応の特殊キー・制御文字・壊れた UTF-8 は本文に入れない
             else:
                 # 通常の文字入力
                 pass

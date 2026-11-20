@@ -114,7 +114,7 @@ AIメンターは最初に「まず画面の見た目から作りたい？それ
 | **Rust** | `crossterm` / `termion` / `Tauri v2` | 高速・堅牢。CLI版に加え、イベント駆動コア＋`xterm.js`の独立デスクトップアプリ構成も実装 |
 | **Java** | `jline3` または `System.console()` + ANSI | オブジェクト指向で設計しやすい。JLineで簡単にTUI化 |
 | **PHP** | `stty` 呼び出し + `fgetc(STDIN)` | CLIスクリプトとして手軽に動く。Web開発者のCLI入門に |
-| **TypeScript (Bun / Node.js)** | `process.stdin.setRawMode(true)` / `Bun.write` | **Bun推奨**（tsconfig不要・`bun run editor.ts`だけで1秒起動。40分開発に最適）。Node.jsでも`tsx`で同様に動作可能 |
+| **TypeScript (Bun / Node.js)** | `process.stdin.setRawMode(true)` / `Bun.write` | **Bun推奨**（tsconfig不要・`bun run editor.ts`だけで1秒起動。40分開発に最適）。Node.jsでも`node editor.ts`（22.18+）や`tsx`で同様に動作可能 |
 | **MoonBit (WASM / WASI)** | イベント駆動コア + `xterm.js` (WasmGC) / `wasip1` | 同じコアコードからブラウザアプリ（約29KB）と WASI CLI バイナリの両方をビルド可能 |
 | **Zig** | `std.posix.termios` / `wasm32-freestanding` | 明示的 `Allocator` による Piece Table・無制限 Undo/Redo・約54KB のブラウザ WASM |
 | **C** | `<termios.h>` | ターミナルの低レイヤ制御を極めたい人向けの王道 |

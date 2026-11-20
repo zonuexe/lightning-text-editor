@@ -15,7 +15,7 @@
 | **Ctrl+C / Ctrl+Z / Ctrl+\\** | OSが割り込み信号（SIGINT / SIGTSTP / SIGQUIT）として拾う | **ただの1バイト（`\x03` 等）の文字として受け取れる**（`ISIG` 無効時） |
 | **Ctrl+S / Ctrl+Q** | **XOFF/XON フロー制御として端末が画面出力を一時停止/再開する** | **`-ixon` を指定しないとエディタにキーが届かない** |
 | **Enter (`\r`) の扱い** | `\r` が自動的に `\n` に変換される（`ICRNL`） | **`-icrnl` を指定しないと `Ctrl+M` と `Ctrl+J` が区別できない** |
-| **Ctrl+V / Ctrl+O / Ctrl+Y** | 端末ドライバの拡張機能（`IEXTEN`）が「次の1文字をリテラル化（`lnext`）」「出力破棄（`discard`）」「遅延サスペンド（macOS の `dsusp`）」として横取りする | **`-iexten` を指定しないとエディタにキーが届かない**（nano の `^O` 保存や Emacs の `C-y` が壊れる） |
+| **Ctrl+V / Ctrl+O / Ctrl+Y** | 端末ドライバの拡張機能（`IEXTEN`）が「次の1文字をリテラル化（`lnext`）」「出力破棄（`discard`）」「遅延サスペンド（`dsusp`）」として横取りする（主に macOS / BSD。Linux は `discard` / `dsusp` 非対応で、`lnext` も ICANON 有効時のみ） | **`-iexten` を指定しないとエディタにキーが届かない**（nano の `^O` 保存や Emacs の `C-y` が壊れる） |
 
 ---
 

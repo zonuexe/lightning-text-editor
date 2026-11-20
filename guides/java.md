@@ -6,7 +6,7 @@ Javaでターミナルアプリを作る場合、デファクトスタンダー�
 
 ## ⚡️ クイックスタート（JLine 3 推奨）
 
-Maven または Gradle で JLine を依存に追加するのがおすすめです（参照実装 [examples/java/](../examples/java/) は Gradle 構成で、JLine ではなく `stty` 呼び出し方式を採用しています）。依存ライブラリを使わない `stty` 方式なら、`java Editor.java` の単一ファイル実行だけで試せます。
+Maven または Gradle で JLine を依存に追加するのがおすすめです（参照実装 [examples/java/](../examples/java/) は Gradle 構成で、JLine ではなく `stty` 呼び出し方式を採用しています）。依存ライブラリを使わない `stty` 方式（`sh -c "stty ... < /dev/tty"` を `ProcessBuilder` で呼ぶ）なら `java Editor.java` の単一ファイル実行だけで試せます。具体的なコードは参照実装の `setRawMode`（[Inzm.java](../examples/java/src/main/java/inzm/Inzm.java) の `stty -icanon -echo -isig ...` を呼ぶ箇所）を参照してください。
 
 ### Maven依存関係 (`pom.xml`)
 ```xml

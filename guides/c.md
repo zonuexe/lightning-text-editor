@@ -18,6 +18,7 @@ clang -Wall -Wextra main.c -o editor
 ## ⌨️ ターミナル生モードとキー入力の最小コード
 
 ```c
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -62,15 +63,16 @@ int main(void) {
 
     char c;
     while (1) {
-        if (read(STDIN_FILENO, &c, 1) == 1) {
-            // Ctrl+Q (ASCII 17, 0x11) で終了
-            if (c == 17) {
-                break;
-            } else if (c == '\r' || c == '\n') {
-                write(STDOUT_FILENO, "\r\n", 2);
-            } else if (c >= 32 && c <= 126) {
-                write(STDOUT_FILENO, &c, 1);
-            }
+        ssize_t n = read(STDIN_FILENO, &c, 1);
+        if (n == -1 && errno == EINTR) continue; // シグナル割り込みは読み直す
+        if (n <= 0) break;                        // EOF や端末切断で無限ループしない
+        // Ctrl+Q (ASCII 17, 0x11) で終了
+        if (c == 17) {
+            break;
+        } else if (c == '\r' || c == '\n') {
+            write(STDOUT_FILENO, "\r\n", 2);
+        } else if (c >= 32 && c <= 126) {
+            write(STDOUT_FILENO, &c, 1);
         }
     }
     return 0;
@@ -82,17 +84,28 @@ int main(void) {
 ## 💾 ファイル保存と読み込み
 
 ```c
+#define _POSIX_C_SOURCE 200809L // getline() を使うため
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-// 読み込み（ファイルが無ければ空バッファで開始）
-void load_file(const char *path) {
+// 読み込み（ファイルが無いときだけ空バッファで開始。権限不足などは -1 を返して開くのを中止する。
+// 読めないファイルを空バッファで開くと、保存した瞬間に中身が消える）
+int load_file(const char *path) {
     FILE *in = fopen(path, "r");
-    if (!in) return;
-    char line[1024];
-    while (fgets(line, sizeof(line), in)) {
-        // 末尾の '\n' を取り除いてバッファに追加...
+    if (!in) return errno == ENOENT ? 0 : -1;
+    char *line = NULL;
+    size_t cap = 0;
+    ssize_t len;
+    // fgets(固定長バッファ) だと長い行が途中で分割されるので、行の長さに合わせて伸びる getline を使う
+    while ((len = getline(&line, &cap, in)) != -1) {
+        if (len > 0 && line[len - 1] == '\n') line[--len] = '\0'; // 末尾の '\n' を取り除く
+        // line（len バイト）をバッファに追加...
     }
+    free(line);
+    int failed = ferror(in);
     fclose(in);
+    return failed ? -1 : 0;
 }
 
 // 保存（書き込み・クローズの失敗を必ず確認する）

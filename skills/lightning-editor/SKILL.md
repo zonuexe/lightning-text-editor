@@ -148,7 +148,7 @@ AI: 「承知しました！名前は『NanoPy』にしましょう。
 | 症状 | 原因 | 解決策 |
 | :--- | :--- | :--- |
 | **画面が崩れてキーを押しても文字が出ない** | 生モードのまま異常終了した | ターミナルで見えなくても `reset` とタイプして Enter を押すと復旧します。 |
-| **Ctrl+Q や Ctrl+S / Enter と Ctrl+J が効かない・区別できない** | 端末の XON/XOFF フロー制御や ICRNL が有効 | `stty -ixon -icrnl`（または `termios` の `IXON` / `ICRNL` 無効化）で生モード化します（`docs/raw-mode.md` 参照）。 |
+| **Ctrl+Q や Ctrl+S / Enter と Ctrl+J が効かない・区別できない** | 端末の XON/XOFF フロー制御や ICRNL が有効 | `stty -icanon -echo -isig -iexten -ixon -icrnl min 1 time 0`（または `termios` の `ISIG` / `IEXTEN` / `IXON` / `ICRNL` 無効化）で生モード化します（`docs/raw-mode.md` 参照）。 |
 | **Esc キーを単独で押すと固まる / 未知キーで `1;2A` 等が入力される** | `\x1b` 後のブロッキング `read` / 3バイト固定判定 | `select` 等で 20〜50ms の短タイムアウトを置き、CSI 終端バイト（`0x40..0x7E`）まで読み飛ばします（`docs/architecture.md` 参照）。 |
 | **貼り付け時にインデントが崩れる / Vim で誤爆する** | Bracketed Paste (`?2004h`) 未有効 | `\x1b[?2004h` で貼り付け境界（`\x1b[200~`..`\x1b[201~`）を判定し、終了時に `\x1b[?2004l` で解除します。 |
 | **全角文字・記号でカーソルがズレる** | 端末の EAW (東アジア曖昧幅) 設定の不一致 | `docs/unicode-and-width.md` を参照し、DSRプローブ（`\x1b[6n`）または手動幅切替を適用します。 |
