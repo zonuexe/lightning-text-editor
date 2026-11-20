@@ -3,6 +3,8 @@ node_modules/
 .bun/
 examples/go/inzm
 target/
+.build/
+.swiftpm/
 _build/
 .mooncakes/
 .moonagent/

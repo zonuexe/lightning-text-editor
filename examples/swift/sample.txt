@@ -1,0 +1,17 @@
+# inzm.swift — CotEditor-inspired macOS Native Text Editor
+
+こんにちは、Swift + AppKit 版テキストエディタ `inzm` へようこそ！
+標準的な macOS キー操作と Unicode 文字情報インスペクタを体験できます：
+
+- File : ⌘N (新規) / ⌘T (新規タブ) / ⌘O (開く) / ⌘S (保存) / ⇧⌘S (別名保存) / ⌘W (閉じる) / ⌘Q (終了)
+- Edit : ⌘Z (元に戻す) / ⇧⌘Z (やり直し) / ⌘F (検索) / ⌥⌘F (置換) / ⌘D (行複製) / ⌘L (行へ移動)
+- View : ⌥⌘I (Unicode 文字情報) / ⌘+ / ⌘- / ⌘0 (フォントサイズ)
+
+Unicode Grapheme Cluster Check:
+- Emoji / ZWJ : 🍣 🇯🇵 👨‍👩‍👧‍👦
+- Combining   : か゚ (U+304B U+309A) / 葛󠄀 (U+845B U+E0100)
+
+func greet(name: String) -> String {
+    // 1文字選択すると下部のステータスバーと ⌥⌘I で詳細が確認できます
+    return "Hello, \(name)!"
+}

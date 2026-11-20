@@ -45,7 +45,7 @@ metadata:
 始める前に、あなたの好みを **4つ（+ 実行先）** 教えてください：
 
 1. **実装言語と実行ターゲットはどうしますか？**
-   - 好きな言語でOKです（TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Lua, Bash, C など）
+   - 好きな言語でOKです（TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Swift, Lua, Bash, C など）
    - 実行先も選べます：**ローカルのターミナル（CLI）** / **ブラウザ（WASM + `xterm.js`）** / **両方（コア共有）**
      - ブラウザを選んでも、ローカルファイルを開いて編集・保存できます！
      - ブラウザ WASM 向けには、ビルドが速く手軽な **MoonBit / Rust / Go (TinyGo) / Zig / AssemblyScript / C** などがおすすめです（[`docs/browser-wasm-runtime.md`](../../docs/browser-wasm-runtime.md) 参照）
@@ -128,7 +128,7 @@ WASM（MoonBit `--target wasm-gc` / Rust `wasm-bindgen` / Go・TinyGo / Zig / As
 User: 「エディタを作りたい」
 AI: 「最高ですね！『史上最速でキミだけのテキストエディタを実装しよう』へようこそ！🎉
      始める前に、あなたの好みを4つ教えてください：
-     1. 実装言語と実行ターゲット (TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Lua, Bash, C 等 / CLI または WASM)
+     1. 実装言語と実行ターゲット (TypeScript/Bun, Python, Ruby, Go, Rust, Java, PHP, MoonBit, Zig, Swift, Lua, Bash, C 等 / CLI・WASM・macOS AppKit)
      2. エディタの名前
      3. どこから動かしたいか (見た目 / 入力 / ロジック)
      4. 操作感 (スタンダード / Vim風 / Emacs風 / nano風)」
